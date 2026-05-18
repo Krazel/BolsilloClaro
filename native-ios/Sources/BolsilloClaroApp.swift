@@ -124,6 +124,17 @@ final class FinanceStore: ObservableObject {
     categoryTotals.filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }
   }
 
+  func budget(for category: String) -> Double {
+    switch category {
+    case "Casa": return max(monthlyBudget * 0.35, 1)
+    case "Comida": return max(monthlyBudget * 0.22, 1)
+    case "Transporte": return max(monthlyBudget * 0.18, 1)
+    case "Ocio": return max(monthlyBudget * 0.12, 1)
+    case "Salud": return max(monthlyBudget * 0.08, 1)
+    default: return max(monthlyBudget * 0.05, 1)
+    }
+  }
+
   var savingsRate: Double {
     guard monthIncome > 0 else { return 0 }
     return max(0, min(available / monthIncome, 1))
@@ -331,8 +342,14 @@ struct HomeView: View {
   var body: some View {
     NavigationStack {
       ScrollView {
-        VStack(alignment: .leading, spacing: 18) {
-          AppHeader(title: "Bolsillo Claro", subtitle: Date.now.formatted(.dateTime.month(.wide).year()))
+        VStack(alignment: .leading, spacing: 14) {
+          HStack {
+            AppHeader(title: "Bolsillo Claro", subtitle: "")
+            Spacer()
+            Image(systemName: "bell")
+              .foregroundStyle(AppColors.navy)
+              .frame(width: 38, height: 38)
+          }
           BalanceCard()
           SpendingCard()
           HStack(spacing: 10) {
@@ -439,35 +456,54 @@ struct InsightsView: View {
     NavigationStack {
       ScrollView {
         VStack(alignment: .leading, spacing: 16) {
-          AppHeader(title: "Analisis", subtitle: "Resumen del mes")
+          HStack {
+            AppHeader(title: "Analisis", subtitle: "")
+            Spacer()
+            Image(systemName: "calendar").foregroundStyle(AppColors.navy)
+          }
+          MonthChip()
           Panel {
+            HStack {
+              SectionTitle("Gastos por categoria")
+              Spacer()
+              Text("Ver detalle")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(AppColors.navy)
+            }
+            ForEach(store.topCategoryTotals.isEmpty ? store.categoryTotals : store.topCategoryTotals, id: \.0) { item in
+              CategoryBar(name: item.0, amount: item.1, maxValue: max((store.topCategoryTotals.first?.1 ?? store.monthlyBudget), 1))
+            }
+          }
+          Panel {
+            SectionTitle("Resumen del mes")
             HStack(spacing: 12) {
               MetricTile(title: "Ingresos", value: store.monthIncome.formatted(.currency(code: "EUR")), color: AppColors.positive)
               MetricTile(title: "Gastos", value: store.spentThisMonth.formatted(.currency(code: "EUR")), color: AppColors.danger)
             }
-            HStack(spacing: 12) {
-              MetricTile(title: "Disponible", value: store.available.formatted(.currency(code: "EUR")), color: store.available >= 0 ? AppColors.positive : AppColors.danger)
-              MetricTile(title: "Ahorro", value: "\(Int(store.savingsRate * 100))%", color: AppColors.accent)
-            }
           }
           Panel {
-            SectionTitle("Gastos por categoria")
-            if store.topCategoryTotals.isEmpty {
-              EmptyText("Todavia no hay gastos para graficar.")
-            } else {
-              ForEach(store.topCategoryTotals, id: \.0) { item in
-                CategoryBar(name: item.0, amount: item.1, maxValue: max(store.topCategoryTotals.first?.1 ?? 1, 1))
+            SectionTitle("Ahorro del mes")
+            HStack(spacing: 18) {
+              ZStack {
+                Circle().stroke(AppColors.line, lineWidth: 10)
+                Circle()
+                  .trim(from: 0, to: store.savingsRate)
+                  .stroke(AppColors.positive, style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                  .rotationEffect(.degrees(-90))
+                Text("\(Int(store.savingsRate * 100))%")
+                  .font(.system(size: 24, weight: .bold))
+                  .foregroundStyle(AppColors.navy)
+              }
+              .frame(width: 92, height: 92)
+              VStack(alignment: .leading, spacing: 6) {
+                Text(max(store.available, 0).formatted(.currency(code: "EUR")))
+                  .font(.system(size: 22, weight: .bold))
+                  .foregroundStyle(AppColors.navy)
+                Text("de tus ingresos")
+                  .font(.system(size: 13, weight: .medium))
+                  .foregroundStyle(AppColors.muted)
               }
             }
-          }
-          Panel {
-            SectionTitle("Presupuesto")
-            ProgressView(value: store.budgetProgress)
-              .tint(store.budgetProgress >= 1 ? AppColors.danger : AppColors.accent)
-              .scaleEffect(x: 1, y: 1.6, anchor: .center)
-            Text("Has usado \(Int(store.budgetProgress * 100))% de \(store.monthlyBudget.formatted(.currency(code: "EUR")))")
-              .font(.system(size: 14, weight: .medium))
-              .foregroundStyle(AppColors.muted)
           }
         }
         .padding(20)
@@ -495,7 +531,11 @@ struct MovementsView: View {
     NavigationStack {
       ScrollView {
         VStack(alignment: .leading, spacing: 14) {
-          AppHeader(title: "Movimientos", subtitle: "Busca, edita y revisa cada apunte.")
+          HStack {
+            AppHeader(title: "Movimientos", subtitle: "")
+            Spacer()
+            Image(systemName: "magnifyingglass").foregroundStyle(AppColors.navy)
+          }
           TextField("Buscar", text: $query)
             .padding(12)
             .background(AppColors.surface, in: RoundedRectangle(cornerRadius: 8))
@@ -504,6 +544,7 @@ struct MovementsView: View {
             FilterChip(title: "Gastos", active: filter == .expense) { filter = .expense }
             FilterChip(title: "Ingresos", active: filter == .income) { filter = .income }
           }
+          MonthDivider()
           Button {
             editingMovement = Movement(title: "", category: store.categories.first ?? "General", amount: 0, kind: .expense)
           } label: {
@@ -537,7 +578,13 @@ struct CategoriesView: View {
     NavigationStack {
       ScrollView {
         VStack(alignment: .leading, spacing: 16) {
-          AppHeader(title: "Categorias", subtitle: "Organiza tus gastos por grupos.")
+          HStack {
+            AppHeader(title: "Categorias", subtitle: "")
+            Spacer()
+            Button("Editar") {}
+              .font(.system(size: 13, weight: .bold))
+              .foregroundStyle(AppColors.navy)
+          }
           Panel {
             LabeledField(title: "Nueva categoria", placeholder: "Ej. Salud", text: $newCategory)
             Button {
@@ -550,25 +597,39 @@ struct CategoriesView: View {
             .buttonStyle(PrimarySheetButtonStyle())
           }
           ForEach(store.categories, id: \.self) { category in
+            let spent = store.categoryTotals.first(where: { $0.0 == category })?.1 ?? 0
+            let budget = store.budget(for: category)
             Panel {
-              HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                  Text(category)
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(AppColors.text)
-                  Text(store.categoryTotals.first(where: { $0.0 == category })?.1.formatted(.currency(code: "EUR")) ?? "0,00 EUR")
-                    .font(.system(size: 13, weight: .medium))
+              HStack(spacing: 12) {
+                CategoryGlyph(name: category)
+                VStack(alignment: .leading, spacing: 6) {
+                  HStack {
+                    Text(category)
+                      .font(.system(size: 17, weight: .bold))
+                      .foregroundStyle(AppColors.navy)
+                    Spacer()
+                    Text(spent.formatted(.currency(code: "EUR")))
+                      .font(.system(size: 13, weight: .bold))
+                      .foregroundStyle(AppColors.navy)
+                  }
+                  Text("Presupuesto: \(budget.formatted(.currency(code: "EUR")))")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(AppColors.muted)
+                  ProgressView(value: min(spent / budget, 1))
+                    .tint(AppColors.positive)
+                }
+                Menu {
+                  Button("Editar") {
+                    selectedCategory = category
+                    editingName = category
+                  }
+                  Button("Borrar", role: .destructive) {
+                    store.deleteCategory(category)
+                  }
+                } label: {
+                  Image(systemName: "ellipsis")
                     .foregroundStyle(AppColors.muted)
                 }
-                Spacer()
-                Button("Editar") {
-                  selectedCategory = category
-                  editingName = category
-                }
-                Button("Borrar", role: .destructive) {
-                  store.deleteCategory(category)
-                }
-                .disabled(store.categories.count <= 1)
               }
               if selectedCategory == category {
                 LabeledField(title: "Nuevo nombre", placeholder: "Nombre", text: $editingName)
@@ -598,8 +659,14 @@ struct SettingsView: View {
     NavigationStack {
       ScrollView {
         VStack(alignment: .leading, spacing: 16) {
-          AppHeader(title: "Ajustes", subtitle: "Presupuesto, ingresos y apariencia.")
+          AppHeader(title: "Ajustes", subtitle: "")
+          SectionTitle("Finanzas")
           Panel {
+            SettingsRow(icon: "briefcase.fill", title: "Ingreso mensual", value: store.monthlyIncome.formatted(.currency(code: "EUR")))
+            Divider()
+            SettingsRow(icon: "calendar.badge.clock", title: "Presupuesto mensual", value: store.monthlyBudget.formatted(.currency(code: "EUR")))
+            Divider()
+            SettingsRow(icon: "dollarsign.circle.fill", title: "Moneda", value: "Euro (€)")
             LabeledField(title: "Ingresos fijos", placeholder: "0,00", text: $incomeText, keyboard: .decimalPad)
             LabeledField(title: "Presupuesto de gastos", placeholder: "0,00", text: $budgetText, keyboard: .decimalPad)
             Button("Guardar dinero del mes") {
@@ -608,14 +675,27 @@ struct SettingsView: View {
             }
             .buttonStyle(PrimarySheetButtonStyle())
           }
+          SectionTitle("Preferencias")
           Panel {
-            SectionTitle("Apariencia")
+            Text("Tema")
+              .font(.system(size: 13, weight: .bold))
+              .foregroundStyle(AppColors.muted)
             Picker("Modo", selection: $store.appearanceMode) {
               ForEach(AppearanceMode.allCases) { mode in
                 Text(mode.rawValue).tag(mode)
               }
             }
             .pickerStyle(.segmented)
+            Divider()
+            SettingsRow(icon: "bell.fill", title: "Notificaciones", value: "")
+            Divider()
+            SettingsRow(icon: "icloud.fill", title: "Copia de seguridad", value: "")
+          }
+          SectionTitle("Informacion")
+          Panel {
+            SettingsRow(icon: "info.circle.fill", title: "Acerca de Bolsillo Claro", value: "")
+            Divider()
+            SettingsRow(icon: "questionmark.circle.fill", title: "Ayuda y soporte", value: "")
           }
         }
         .padding(20)
@@ -983,31 +1063,20 @@ struct CategoryCard: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Image(systemName: icon)
-        .font(.system(size: 18, weight: .semibold))
-        .foregroundStyle(AppColors.accent)
+      CategoryGlyph(name: name)
       Text(name)
         .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(AppColors.text)
+        .foregroundStyle(AppColors.navy)
         .lineLimit(1)
       Text(amount.formatted(.currency(code: "EUR")))
         .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(AppColors.muted)
+        .foregroundStyle(AppColors.positive)
         .lineLimit(1)
         .minimumScaleFactor(0.72)
     }
     .padding(12)
     .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
     .background(AppColors.surface, in: RoundedRectangle(cornerRadius: 8))
-  }
-
-  private var icon: String {
-    switch name {
-    case "Casa": return "house"
-    case "Comida": return "cart"
-    case "Transporte": return "tram"
-    default: return "folder"
-    }
   }
 }
 
@@ -1018,16 +1087,12 @@ struct MovementRow: View {
 
   var body: some View {
     HStack(spacing: 12) {
-      Text(String(movement.category.prefix(1)))
-        .font(.system(size: 16, weight: .bold))
-        .foregroundStyle(movement.kind == .income ? AppColors.positive : AppColors.accent)
-        .frame(width: 42, height: 42)
-        .background((movement.kind == .income ? AppColors.positive : AppColors.accent).opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+      CategoryGlyph(name: movement.kind == .income ? "Ingreso" : movement.category, size: 36)
       VStack(alignment: .leading, spacing: 3) {
         Text(movement.title)
           .font(.system(size: 16, weight: .semibold))
           .foregroundStyle(AppColors.text)
-        Text("\(movement.category) · \(movement.kind.rawValue)")
+        Text("\(movement.category) · \(movement.date.formatted(.dateTime.day().month()))")
           .font(.system(size: 13, weight: .medium))
           .foregroundStyle(AppColors.muted)
       }
@@ -1051,6 +1116,43 @@ struct MovementRow: View {
   }
 }
 
+struct CategoryGlyph: View {
+  let name: String
+  var size: CGFloat = 38
+
+  var body: some View {
+    Image(systemName: icon)
+      .font(.system(size: size * 0.44, weight: .bold))
+      .foregroundStyle(.white)
+      .frame(width: size, height: size)
+      .background(color, in: Circle())
+  }
+
+  private var icon: String {
+    switch name {
+    case "Casa": return "house.fill"
+    case "Comida": return "fork.knife"
+    case "Transporte": return "bus.fill"
+    case "Ocio": return "briefcase.fill"
+    case "Salud": return "cross.fill"
+    case "Ingreso": return "banknote.fill"
+    default: return "ellipsis"
+    }
+  }
+
+  private var color: Color {
+    switch name {
+    case "Casa": return AppColors.positive
+    case "Comida": return .orange
+    case "Transporte": return .blue
+    case "Ocio": return .purple
+    case "Salud": return .red
+    case "Ingreso": return AppColors.positive
+    default: return .gray
+    }
+  }
+}
+
 struct MetricTile: View {
   let title: String
   let value: String
@@ -1069,7 +1171,8 @@ struct MetricTile: View {
     }
     .padding(12)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(AppColors.background, in: RoundedRectangle(cornerRadius: 8))
+    .background(.white, in: RoundedRectangle(cornerRadius: 8))
+    .overlay(RoundedRectangle(cornerRadius: 8).stroke(AppColors.line, lineWidth: 1))
   }
 }
 
@@ -1106,12 +1209,45 @@ struct AppHeader: View {
     VStack(alignment: .leading, spacing: 5) {
       Text(title)
         .font(.system(size: 30, weight: .bold))
-        .foregroundStyle(AppColors.text)
+        .foregroundStyle(AppColors.navy)
       Text(subtitle)
         .font(.system(size: 15, weight: .medium))
         .foregroundStyle(AppColors.muted)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+struct MonthChip: View {
+  var body: some View {
+    HStack {
+      Text("Mayo 2024")
+        .font(.system(size: 15, weight: .semibold))
+      Spacer()
+      Image(systemName: "chevron.down")
+        .font(.system(size: 12, weight: .bold))
+    }
+    .foregroundStyle(AppColors.navy)
+    .padding(.horizontal, 14)
+    .frame(width: 150, height: 44)
+    .background(.white, in: RoundedRectangle(cornerRadius: 10))
+    .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppColors.line, lineWidth: 1))
+  }
+}
+
+struct MonthDivider: View {
+  var body: some View {
+    HStack {
+      Text("Mayo 2024")
+        .font(.system(size: 16, weight: .bold))
+        .foregroundStyle(AppColors.navy)
+      Spacer()
+      Image(systemName: "chevron.down")
+        .font(.system(size: 12, weight: .bold))
+        .foregroundStyle(AppColors.muted)
+    }
+    .padding(.vertical, 10)
+    .overlay(Divider(), alignment: .bottom)
   }
 }
 
@@ -1160,10 +1296,11 @@ struct FilterChip: View {
     Button(action: action) {
       Text(title)
         .font(.system(size: 13, weight: .bold))
-        .foregroundStyle(active ? .white : AppColors.accent)
+        .foregroundStyle(active ? .white : AppColors.navy)
         .padding(.horizontal, 14)
         .frame(height: 36)
-        .background(active ? AppColors.accent : AppColors.surface, in: Capsule())
+        .background(active ? AppColors.navy : AppColors.surface, in: Capsule())
+        .overlay(Capsule().stroke(AppColors.line, lineWidth: active ? 0 : 1))
     }
     .buttonStyle(.plain)
   }
@@ -1176,7 +1313,8 @@ struct Panel<Content: View>: View {
     VStack(alignment: .leading, spacing: 14) { content }
       .padding(16)
       .frame(maxWidth: .infinity, alignment: .leading)
-      .background(AppColors.surface, in: RoundedRectangle(cornerRadius: 8))
+      .background(.white, in: RoundedRectangle(cornerRadius: 10))
+      .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppColors.line, lineWidth: 1))
   }
 }
 
@@ -1206,9 +1344,10 @@ struct SoftButtonStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
       .font(.system(size: 14, weight: .semibold))
-      .foregroundStyle(AppColors.accent)
+      .foregroundStyle(AppColors.navy)
       .frame(maxWidth: .infinity, minHeight: 46)
-      .background(AppColors.surface, in: RoundedRectangle(cornerRadius: 8))
+      .background(.white, in: RoundedRectangle(cornerRadius: 8))
+      .overlay(RoundedRectangle(cornerRadius: 8).stroke(AppColors.line, lineWidth: 1))
       .opacity(configuration.isPressed ? 0.72 : 1)
   }
 }
@@ -1219,17 +1358,47 @@ struct PrimarySheetButtonStyle: ButtonStyle {
       .font(.system(size: 15, weight: .bold))
       .foregroundStyle(.white)
       .frame(maxWidth: .infinity, minHeight: 46)
-      .background(AppColors.accent, in: RoundedRectangle(cornerRadius: 8))
+      .background(AppColors.navy, in: RoundedRectangle(cornerRadius: 8))
       .opacity(configuration.isPressed ? 0.72 : 1)
   }
 }
 
+struct SettingsRow: View {
+  let icon: String
+  let title: String
+  let value: String
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Image(systemName: icon)
+        .font(.system(size: 14, weight: .bold))
+        .foregroundStyle(.white)
+        .frame(width: 32, height: 32)
+        .background(AppColors.positive, in: Circle())
+      Text(title)
+        .font(.system(size: 15, weight: .semibold))
+        .foregroundStyle(AppColors.navy)
+      Spacer()
+      if !value.isEmpty {
+        Text(value)
+          .font(.system(size: 14, weight: .semibold))
+          .foregroundStyle(AppColors.muted)
+      }
+      Image(systemName: "chevron.right")
+        .font(.system(size: 12, weight: .bold))
+        .foregroundStyle(AppColors.muted)
+    }
+  }
+}
+
 enum AppColors {
-  static let background = Color(uiColor: .systemGroupedBackground)
-  static let surface = Color(uiColor: .secondarySystemGroupedBackground)
-  static let text = Color(uiColor: .label)
-  static let muted = Color(uiColor: .secondaryLabel)
-  static let accent = Color(red: 0.03, green: 0.45, blue: 0.28)
-  static let positive = Color(red: 0.02, green: 0.55, blue: 0.33)
+  static let background = Color(red: 0.985, green: 0.99, blue: 1.0)
+  static let surface = Color.white
+  static let text = Color(red: 0.04, green: 0.10, blue: 0.22)
+  static let navy = Color(red: 0.02, green: 0.13, blue: 0.34)
+  static let muted = Color(red: 0.36, green: 0.43, blue: 0.55)
+  static let line = Color(red: 0.88, green: 0.91, blue: 0.95)
+  static let accent = Color(red: 0.02, green: 0.13, blue: 0.34)
+  static let positive = Color(red: 0.03, green: 0.62, blue: 0.32)
   static let danger = Color(red: 0.78, green: 0.20, blue: 0.18)
 }

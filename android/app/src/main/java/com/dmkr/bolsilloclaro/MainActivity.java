@@ -28,6 +28,7 @@ import org.json.JSONObject;
 import java.text.NumberFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
 import java.util.UUID;
@@ -44,6 +45,7 @@ public class MainActivity extends android.app.Activity {
     private double monthlyIncome = 1850;
     private double monthlyBudget = 1200;
     private int appearanceMode = 0;
+    private int currentTab = 0;
     private boolean darkMode;
     private int background;
     private int surface;
@@ -87,37 +89,55 @@ public class MainActivity extends android.app.Activity {
         scroll.addView(root);
         frame.addView(scroll);
 
-        root.addView(header());
-        root.addView(balanceCard());
-        root.addView(spendingCard());
-        root.addView(actionRow());
-        root.addView(insightCard());
-        root.addView(categoryScroller());
+        if (currentTab == 0) {
+            root.addView(header());
+            root.addView(balanceCard());
+            root.addView(spendingCard());
+            root.addView(actionRow());
+            root.addView(categoryScroller());
+            addMovements(root, 5);
+        } else if (currentTab == 1) {
+            root.addView(pageHeader("Analisis", "Resumen del mes"));
+            addInsights(root);
+        } else if (currentTab == 2) {
+            root.addView(pageHeader("Movimientos", "Busca, edita y revisa cada apunte."));
+            Button addMovement = actionButton("Anadir movimiento", v -> showMovementDialog(null));
+            root.addView(withMargins(addMovement, 0, 0, 0, 14), new LinearLayout.LayoutParams(-1, dp(48)));
+            addMovements(root, movements.size());
+        } else if (currentTab == 3) {
+            root.addView(pageHeader("Categorias", "Organiza tus gastos por grupos."));
+            addCategoriesPage(root);
+        } else {
+            root.addView(pageHeader("Ajustes", "Presupuesto, ingresos y apariencia."));
+            addSettingsPage(root);
+        }
+
+        frame.addView(bottomNav(), new FrameLayout.LayoutParams(-1, dp(70), Gravity.BOTTOM));
+
+        setContentView(frame);
+    }
+
+    private void addMovements(LinearLayout root, int limit) {
         root.addView(sectionTitle("Movimientos"));
         if (movements.isEmpty()) {
             TextView empty = label("Anade un gasto o ingreso para empezar.", 15, muted, false);
             empty.setGravity(Gravity.CENTER);
             empty.setBackground(rounded(surface, 8));
             root.addView(withMargins(empty, 0, 0, 0, 10), new LinearLayout.LayoutParams(-1, dp(88)));
-        } else {
-            for (int i = 0; i < movements.size(); i++) {
-                root.addView(movementRow(movements.get(i)));
-            }
+            return;
         }
+        for (int i = 0; i < Math.min(limit, movements.size()); i++) {
+            root.addView(movementRow(movements.get(i)));
+        }
+    }
 
-        Button add = new Button(this);
-        add.setText("Anadir");
-        add.setTextColor(Color.WHITE);
-        add.setTextSize(16);
-        add.setTypeface(Typeface.DEFAULT_BOLD);
-        add.setAllCaps(false);
-        add.setBackground(rounded(accent, 100));
-        add.setOnClickListener(v -> showMovementDialog(null));
-        FrameLayout.LayoutParams addLp = new FrameLayout.LayoutParams(dp(128), dp(54), Gravity.BOTTOM | Gravity.RIGHT);
-        addLp.setMargins(0, 0, dp(20), dp(22));
-        frame.addView(add, addLp);
-
-        setContentView(frame);
+    private View pageHeader(String title, String subtitle) {
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.setPadding(0, 0, 0, dp(18));
+        copy.addView(label(title, 30, text, true));
+        copy.addView(label(subtitle, 15, muted, false));
+        return copy;
     }
 
     private View header() {
@@ -194,13 +214,16 @@ public class MainActivity extends android.app.Activity {
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
         LinearLayout first = actionLine();
-        first.addView(actionButton("Ingreso", v -> showIncomeDialog()), new LinearLayout.LayoutParams(0, dp(46), 1));
+        first.addView(actionButton("Gasto", v -> showMovementDialog(null)), new LinearLayout.LayoutParams(0, dp(46), 1));
         addGap(first);
-        first.addView(actionButton("Analisis", v -> showInsightsDialog()), new LinearLayout.LayoutParams(0, dp(46), 1));
+        first.addView(actionButton("Ingreso", v -> showIncomeDialog()), new LinearLayout.LayoutParams(0, dp(46), 1));
         LinearLayout second = actionLine();
-        second.addView(actionButton("Categorias", v -> showCategoriesDialog()), new LinearLayout.LayoutParams(0, dp(46), 1));
+        second.addView(actionButton("Calendario", v -> showCalendarDialog()), new LinearLayout.LayoutParams(0, dp(46), 1));
         addGap(second);
-        second.addView(actionButton("Ajustes", v -> showSettingsDialog()), new LinearLayout.LayoutParams(0, dp(46), 1));
+        second.addView(actionButton("Categorias", v -> {
+            currentTab = 3;
+            showDashboard();
+        }), new LinearLayout.LayoutParams(0, dp(46), 1));
         grid.addView(first);
         grid.addView(withMargins(second, 0, 10, 0, 0));
         return withMargins(grid, 0, 0, 0, 14);
@@ -226,6 +249,26 @@ public class MainActivity extends android.app.Activity {
         button.setBackground(rounded(surface, 8));
         button.setOnClickListener(listener);
         return button;
+    }
+
+    private View bottomNav() {
+        LinearLayout nav = new LinearLayout(this);
+        nav.setOrientation(LinearLayout.HORIZONTAL);
+        nav.setGravity(Gravity.CENTER);
+        nav.setPadding(dp(6), dp(6), dp(6), dp(6));
+        nav.setBackgroundColor(surface);
+        String[] labels = {"Inicio", "Analisis", "Movs", "Categorias", "Ajustes"};
+        for (int i = 0; i < labels.length; i++) {
+            final int index = i;
+            TextView item = label(labels[i], 12, currentTab == i ? accent : muted, true);
+            item.setGravity(Gravity.CENTER);
+            item.setOnClickListener(v -> {
+                currentTab = index;
+                showDashboard();
+            });
+            nav.addView(item, new LinearLayout.LayoutParams(0, -1, 1));
+        }
+        return nav;
     }
 
     private View insightCard() {
@@ -423,6 +466,88 @@ public class MainActivity extends android.app.Activity {
             .show();
     }
 
+    private void addInsights(LinearLayout root) {
+        LinearLayout metrics = new LinearLayout(this);
+        metrics.setOrientation(LinearLayout.VERTICAL);
+        metrics.setBackground(rounded(surface, 8));
+        metrics.setPadding(dp(14), dp(14), dp(14), dp(14));
+        LinearLayout lineOne = actionLine();
+        lineOne.addView(metricTile("Ingresos", currency(incomeTotal()), positive), new LinearLayout.LayoutParams(0, dp(72), 1));
+        addGap(lineOne);
+        lineOne.addView(metricTile("Gastos", currency(spent()), danger), new LinearLayout.LayoutParams(0, dp(72), 1));
+        LinearLayout lineTwo = actionLine();
+        lineTwo.addView(metricTile("Disponible", currency(available()), available() >= 0 ? positive : danger), new LinearLayout.LayoutParams(0, dp(72), 1));
+        addGap(lineTwo);
+        lineTwo.addView(metricTile("Ahorro", (int) Math.round(savingsRate() * 100) + "%", accent), new LinearLayout.LayoutParams(0, dp(72), 1));
+        metrics.addView(lineOne);
+        metrics.addView(withMargins(lineTwo, 0, 10, 0, 0));
+        root.addView(withMargins(metrics, 0, 0, 0, 14));
+
+        LinearLayout chart = new LinearLayout(this);
+        chart.setOrientation(LinearLayout.VERTICAL);
+        chart.setBackground(rounded(surface, 8));
+        chart.setPadding(dp(14), dp(14), dp(14), dp(14));
+        chart.addView(label("Gastos por categoria", 17, text, true));
+        double max = Math.max(maxCategoryTotal(), 1);
+        ArrayList<String> ordered = topCategories();
+        if (ordered.isEmpty()) {
+            TextView empty = label("Todavia no hay gastos para graficar.", 14, muted, false);
+            empty.setGravity(Gravity.CENTER);
+            chart.addView(empty, new LinearLayout.LayoutParams(-1, dp(90)));
+        } else {
+            for (String category : ordered) {
+                chart.addView(categoryBar(category, totalFor(category), max));
+            }
+        }
+        root.addView(withMargins(chart, 0, 0, 0, 14));
+
+        LinearLayout budget = new LinearLayout(this);
+        budget.setOrientation(LinearLayout.VERTICAL);
+        budget.setBackground(rounded(surface, 8));
+        budget.setPadding(dp(14), dp(14), dp(14), dp(14));
+        budget.addView(label("Presupuesto", 17, text, true));
+        ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        int percent = (int) Math.round(Math.min(spent() / Math.max(monthlyBudget, 1), 1) * 100);
+        bar.setMax(100);
+        bar.setProgress(percent);
+        budget.addView(withMargins(bar, 0, 14, 0, 10), new LinearLayout.LayoutParams(-1, dp(12)));
+        budget.addView(label("Has usado " + percent + "% de " + currency(monthlyBudget), 14, muted, false));
+        root.addView(budget);
+    }
+
+    private void addCategoriesPage(LinearLayout root) {
+        Button add = actionButton("Anadir categoria", v -> showAddCategoryDialog());
+        root.addView(withMargins(add, 0, 0, 0, 14), new LinearLayout.LayoutParams(-1, dp(48)));
+        for (String category : new ArrayList<>(categories)) {
+            LinearLayout card = card();
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            LinearLayout copy = new LinearLayout(this);
+            copy.setOrientation(LinearLayout.VERTICAL);
+            copy.addView(label(category, 17, text, true));
+            copy.addView(label(currency(totalFor(category)), 13, muted, false));
+            row.addView(copy, new LinearLayout.LayoutParams(0, -2, 1));
+            row.addView(actionButton("Editar", v -> showRenameCategoryDialog(category)), new LinearLayout.LayoutParams(dp(82), dp(42)));
+            row.addView(actionButton("Borrar", v -> confirmDeleteCategory(category)), new LinearLayout.LayoutParams(dp(82), dp(42)));
+            card.addView(row);
+            root.addView(withMargins(card, 0, 0, 0, 10));
+        }
+    }
+
+    private void addSettingsPage(LinearLayout root) {
+        LinearLayout money = card();
+        money.addView(label("Dinero del mes", 17, text, true));
+        money.addView(label("Ingresos fijos: " + currency(monthlyIncome), 15, muted, false));
+        money.addView(label("Presupuesto: " + currency(monthlyBudget), 15, muted, false));
+        money.addView(withMargins(actionButton("Editar dinero y tema", v -> showSettingsDialog()), 0, 12, 0, 0), new LinearLayout.LayoutParams(-1, dp(48)));
+        root.addView(withMargins(money, 0, 0, 0, 14));
+
+        LinearLayout theme = card();
+        theme.addView(label("Apariencia", 17, text, true));
+        theme.addView(label("Modo actual: " + MODES[appearanceMode], 15, muted, false));
+        root.addView(theme);
+    }
+
     private void showSettingsDialog() {
         LinearLayout form = new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
@@ -525,6 +650,68 @@ public class MainActivity extends android.app.Activity {
             .setTitle("Analisis")
             .setView(scroll)
             .setPositiveButton("Cerrar", null)
+            .show();
+    }
+
+    private void showCalendarDialog() {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        wrapper.setPadding(dp(18), dp(8), dp(18), dp(8));
+        scroll.addView(wrapper);
+
+        Calendar calendar = Calendar.getInstance();
+        int today = calendar.get(Calendar.DAY_OF_MONTH);
+        int maxDay = calendar.getActualMaximum(Calendar.DAY_OF_MONTH);
+        LinearLayout grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        grid.setBackground(rounded(surface, 8));
+        grid.setPadding(dp(10), dp(10), dp(10), dp(10));
+
+        for (int start = 1; start <= maxDay; start += 7) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            for (int day = start; day < start + 7 && day <= maxDay; day++) {
+                final int selectedDay = day;
+                Calendar date = Calendar.getInstance();
+                date.set(Calendar.DAY_OF_MONTH, selectedDay);
+                double expense = totalOn(date, "Gasto");
+                double income = totalOn(date, "Ingreso");
+                TextView cell = label(String.valueOf(day) + "\n" + (expense > 0 ? "•" : " ") + (income > 0 ? "•" : " "), 13, day == today ? Color.WHITE : text, true);
+                cell.setGravity(Gravity.CENTER);
+                cell.setBackground(rounded(day == today ? accent : background, 8));
+                cell.setOnClickListener(v -> showDayDialog(selectedDay));
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(54), 1);
+                lp.setMargins(dp(3), dp(3), dp(3), dp(3));
+                row.addView(cell, lp);
+            }
+            grid.addView(row);
+        }
+        wrapper.addView(grid);
+
+        new AlertDialog.Builder(this)
+            .setTitle("Calendario")
+            .setView(scroll)
+            .setPositiveButton("Cerrar", null)
+            .show();
+    }
+
+    private void showDayDialog(int day) {
+        Calendar date = Calendar.getInstance();
+        date.set(Calendar.DAY_OF_MONTH, day);
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        wrapper.setPadding(dp(18), dp(8), dp(18), dp(8));
+        wrapper.addView(label("Gastos: " + currency(totalOn(date, "Gasto")), 15, muted, false));
+        wrapper.addView(label("Ingresos: " + currency(totalOn(date, "Ingreso")), 15, muted, false));
+        for (Movement movement : movementsOn(date)) {
+            wrapper.addView(movementRow(movement));
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("Dia " + day)
+            .setView(wrapper)
+            .setNegativeButton("Cerrar", null)
+            .setPositiveButton("Anadir", (dialog, which) -> showMovementDialog(new Movement(UUID.randomUUID().toString(), "", categories.isEmpty() ? "General" : categories.get(0), 0, "Gasto")))
             .show();
     }
 
@@ -776,6 +963,22 @@ public class MainActivity extends android.app.Activity {
             if (movement.category.equals(category) && movement.kind.equals("Gasto")) total += movement.amount;
         }
         return total;
+    }
+
+    private double totalOn(Calendar date, String kind) {
+        if (date.get(Calendar.DAY_OF_MONTH) != Calendar.getInstance().get(Calendar.DAY_OF_MONTH)) return 0;
+        double total = 0;
+        for (Movement movement : movements) {
+            if (movement.kind.equals(kind)) total += movement.amount;
+        }
+        return total;
+    }
+
+    private ArrayList<Movement> movementsOn(Calendar date) {
+        ArrayList<Movement> result = new ArrayList<>();
+        if (date.get(Calendar.DAY_OF_MONTH) != Calendar.getInstance().get(Calendar.DAY_OF_MONTH)) return result;
+        result.addAll(movements);
+        return result;
     }
 
     private double maxCategoryTotal() {

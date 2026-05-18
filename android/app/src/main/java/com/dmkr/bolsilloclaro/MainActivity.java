@@ -41,6 +41,7 @@ public class MainActivity extends android.app.Activity {
 
     private final ArrayList<Movement> movements = new ArrayList<>();
     private final ArrayList<String> categories = new ArrayList<>();
+    private final ArrayList<FrequentExpense> frequentExpenses = new ArrayList<>();
     private SharedPreferences prefs;
     private double monthlyIncome = 1850;
     private double monthlyBudget = 1200;
@@ -61,6 +62,7 @@ public class MainActivity extends android.app.Activity {
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         loadSettings();
         loadCategories();
+        loadFrequentExpenses();
         loadMovements();
         configureColors();
         showDashboard();
@@ -103,6 +105,7 @@ public class MainActivity extends android.app.Activity {
             root.addView(pageHeader("Movimientos", "Busca, edita y revisa cada apunte."));
             Button addMovement = actionButton("Anadir movimiento", v -> showMovementDialog(null));
             root.addView(withMargins(addMovement, 0, 0, 0, 14), new LinearLayout.LayoutParams(-1, dp(48)));
+            addFrequentPanel(root);
             addMovements(root, movements.size());
         } else if (currentTab == 3) {
             root.addView(pageHeader("Categorias", "Organiza tus gastos por grupos."));
@@ -327,6 +330,66 @@ public class MainActivity extends android.app.Activity {
         return withMargins(scroll, 0, 0, 0, 14);
     }
 
+    private View frequentScroller() {
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout title = new LinearLayout(this);
+        title.setOrientation(LinearLayout.HORIZONTAL);
+        title.addView(label("Frecuentes", 20, text, true), new LinearLayout.LayoutParams(0, -2, 1));
+        title.addView(label("tocar y ajustar", 12, muted, true));
+        wrapper.addView(title);
+
+        HorizontalScrollView scroll = new HorizontalScrollView(this);
+        scroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        for (FrequentExpense item : frequentExpenses) {
+            LinearLayout card = new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(dp(12), dp(12), dp(12), dp(12));
+            card.setBackground(rounded(surface, 8));
+            card.addView(label("▣", 18, accent, true));
+            card.addView(label(item.name, 14, text, true));
+            card.addView(label(item.amount > 0 ? currency(item.amount) : "sin importe", 12, muted, false));
+            card.setOnClickListener(v -> showMovementDialog(movementFrom(item)));
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(134), dp(96));
+            lp.setMargins(0, dp(10), dp(10), 0);
+            row.addView(card, lp);
+        }
+        scroll.addView(row);
+        wrapper.addView(scroll);
+        return withMargins(wrapper, 0, 0, 0, 14);
+    }
+
+    private void addFrequentPanel(LinearLayout root) {
+        LinearLayout panel = card();
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(label("Gastos frecuentes", 18, text, true), new LinearLayout.LayoutParams(0, -2, 1));
+        header.addView(actionButton("Nuevo", v -> showFrequentDialog(null)), new LinearLayout.LayoutParams(dp(86), dp(42)));
+        panel.addView(header);
+        panel.addView(label("Conceptos guardados. Pueden llevar importe o quedarse sin dinero.", 13, muted, false));
+        for (FrequentExpense item : frequentExpenses) {
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, dp(8), 0, dp(8));
+            row.setOnClickListener(v -> showMovementDialog(movementFrom(item)));
+            LinearLayout copy = new LinearLayout(this);
+            copy.setOrientation(LinearLayout.VERTICAL);
+            copy.addView(label(item.name, 15, text, true));
+            copy.addView(label(item.category + " · " + (item.amount > 0 ? currency(item.amount) : "sin importe"), 12, muted, false));
+            row.addView(copy, new LinearLayout.LayoutParams(0, -2, 1));
+            row.addView(actionButton("Editar", v -> showFrequentDialog(item)), new LinearLayout.LayoutParams(dp(82), dp(42)));
+            row.addView(actionButton("Borrar", v -> {
+                frequentExpenses.remove(item);
+                saveFrequentExpenses();
+                showDashboard();
+            }), new LinearLayout.LayoutParams(dp(82), dp(42)));
+            panel.addView(row);
+        }
+        root.addView(withMargins(panel, 0, 0, 0, 14));
+    }
+
     private TextView sectionTitle(String value) {
         TextView title = label(value, 20, text, true);
         title.setPadding(0, dp(6), 0, dp(10));
@@ -464,6 +527,61 @@ public class MainActivity extends android.app.Activity {
                 }
             })
             .show();
+    }
+
+    private void showFrequentDialog(FrequentExpense existing) {
+        FrequentExpense draft = existing == null
+            ? new FrequentExpense(UUID.randomUUID().toString(), "", categories.isEmpty() ? "Comida" : categories.get(0), 0)
+            : new FrequentExpense(existing.id, existing.name, existing.category, existing.amount);
+
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(20), dp(10), dp(20), 0);
+
+        EditText nameInput = new EditText(this);
+        nameInput.setHint("Nombre");
+        nameInput.setText(draft.name);
+        form.addView(nameInput);
+
+        EditText amountInput = new EditText(this);
+        amountInput.setHint("Importe opcional");
+        amountInput.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        if (draft.amount > 0) amountInput.setText(String.format(Locale.US, "%.2f", draft.amount));
+        form.addView(amountInput);
+
+        Spinner categoryInput = new Spinner(this);
+        categoryInput.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, categories));
+        categoryInput.setSelection(Math.max(0, categories.indexOf(draft.category)));
+        categoryInput.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                draft.category = categories.get(position);
+            }
+            @Override public void onNothingSelected(AdapterView<?> parent) { }
+        });
+        form.addView(categoryInput);
+
+        new AlertDialog.Builder(this)
+            .setTitle(existing == null ? "Nuevo frecuente" : "Editar frecuente")
+            .setView(form)
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Guardar", (dialog, which) -> {
+                draft.name = nameInput.getText().toString().trim();
+                draft.amount = parseAmount(amountInput.getText().toString());
+                if (!draft.name.isEmpty()) {
+                    int index = indexOfFrequent(draft.id);
+                    if (index >= 0) frequentExpenses.set(index, draft);
+                    else frequentExpenses.add(0, draft);
+                    addCategory(draft.category);
+                    saveFrequentExpenses();
+                    showDashboard();
+                }
+            })
+            .show();
+    }
+
+    private Movement movementFrom(FrequentExpense item) {
+        addCategory(item.category);
+        return new Movement(UUID.randomUUID().toString(), item.name, item.category, Math.max(0, item.amount), "Gasto");
     }
 
     private void addInsights(LinearLayout root) {
@@ -850,6 +968,37 @@ public class MainActivity extends android.app.Activity {
         prefs.edit().putString("categories", array.toString()).apply();
     }
 
+    private void loadFrequentExpenses() {
+        frequentExpenses.clear();
+        String raw = prefs.getString("frequent.expenses.v1", "");
+        if (!raw.isEmpty()) {
+            try {
+                JSONArray array = new JSONArray(raw);
+                for (int i = 0; i < array.length(); i++) frequentExpenses.add(FrequentExpense.from(array.getJSONObject(i)));
+            } catch (Exception ignored) {
+                frequentExpenses.clear();
+            }
+        }
+        if (frequentExpenses.isEmpty()) {
+            frequentExpenses.add(new FrequentExpense(UUID.randomUUID().toString(), "Supermercado", "Comida", 0));
+            frequentExpenses.add(new FrequentExpense(UUID.randomUUID().toString(), "Gasolina", "Transporte", 0));
+            frequentExpenses.add(new FrequentExpense(UUID.randomUUID().toString(), "Alquiler", "Casa", 0));
+            frequentExpenses.add(new FrequentExpense(UUID.randomUUID().toString(), "Luz", "Casa", 0));
+            frequentExpenses.add(new FrequentExpense(UUID.randomUUID().toString(), "Farmacia", "Salud", 0));
+            frequentExpenses.add(new FrequentExpense(UUID.randomUUID().toString(), "Restaurante", "Ocio", 0));
+            frequentExpenses.add(new FrequentExpense(UUID.randomUUID().toString(), "Gimnasio", "Salud", 0));
+            frequentExpenses.add(new FrequentExpense(UUID.randomUUID().toString(), "Suscripciones", "Ocio", 0));
+        }
+    }
+
+    private void saveFrequentExpenses() {
+        JSONArray array = new JSONArray();
+        try {
+            for (FrequentExpense item : frequentExpenses) array.put(item.toJson());
+        } catch (Exception ignored) { }
+        prefs.edit().putString("frequent.expenses.v1", array.toString()).apply();
+    }
+
     private void addCategory(String value) {
         String cleaned = value.trim();
         if (cleaned.isEmpty() || categories.contains(cleaned)) return;
@@ -928,6 +1077,13 @@ public class MainActivity extends android.app.Activity {
     private int indexOfMovement(String id) {
         for (int i = 0; i < movements.size(); i++) {
             if (movements.get(i).id.equals(id)) return i;
+        }
+        return -1;
+    }
+
+    private int indexOfFrequent(String id) {
+        for (int i = 0; i < frequentExpenses.size(); i++) {
+            if (frequentExpenses.get(i).id.equals(id)) return i;
         }
         return -1;
     }
@@ -1076,6 +1232,38 @@ public class MainActivity extends android.app.Activity {
 
         double signedAmount() {
             return kind.equals("Ingreso") ? amount : -amount;
+        }
+    }
+
+    private static final class FrequentExpense {
+        final String id;
+        String name;
+        String category;
+        double amount;
+
+        FrequentExpense(String id, String name, String category, double amount) {
+            this.id = id;
+            this.name = name;
+            this.category = category;
+            this.amount = amount;
+        }
+
+        JSONObject toJson() throws Exception {
+            JSONObject json = new JSONObject();
+            json.put("id", id);
+            json.put("name", name);
+            json.put("category", category);
+            json.put("amount", amount);
+            return json;
+        }
+
+        static FrequentExpense from(JSONObject json) {
+            return new FrequentExpense(
+                json.optString("id", UUID.randomUUID().toString()),
+                json.optString("name", ""),
+                json.optString("category", "Comida"),
+                json.optDouble("amount", 0)
+            );
         }
     }
 }

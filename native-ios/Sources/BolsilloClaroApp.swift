@@ -48,17 +48,33 @@ struct Movement: Identifiable, Codable, Equatable {
   }
 }
 
+struct FrequentExpense: Identifiable, Codable, Equatable {
+  let id: UUID
+  var name: String
+  var category: String
+  var amount: Double?
+
+  init(id: UUID = UUID(), name: String, category: String, amount: Double? = nil) {
+    self.id = id
+    self.name = name
+    self.category = category
+    self.amount = amount
+  }
+}
+
 final class FinanceStore: ObservableObject {
   @Published var monthlyIncome: Double = 1850 { didSet { saveSettings() } }
   @Published var monthlyBudget: Double = 1200 { didSet { saveSettings() } }
   @Published var movements: [Movement] = [] { didSet { saveMovements() } }
   @Published var categories: [String] = [] { didSet { saveCategories() } }
+  @Published var frequentExpenses: [FrequentExpense] = [] { didSet { saveFrequentExpenses() } }
   @Published var appearanceMode: AppearanceMode = .system { didSet { saveSettings() } }
 
   private let movementsKey = "movements.v3"
   private let legacyMovementsKey = "movements.v2"
   private let oldLegacyMovementsKey = "movements"
   private let categoriesKey = "categories"
+  private let frequentExpensesKey = "frequent.expenses.v1"
   private let incomeKey = "monthlyIncome"
   private let budgetKey = "monthlyBudget"
   private let appearanceKey = "appearanceMode"
@@ -66,6 +82,7 @@ final class FinanceStore: ObservableObject {
   init() {
     loadSettings()
     loadCategories()
+    loadFrequentExpenses()
     loadMovements()
   }
 
@@ -123,6 +140,27 @@ final class FinanceStore: ObservableObject {
 
   func delete(_ movement: Movement) {
     movements.removeAll { $0.id == movement.id }
+  }
+
+  func movement(from frequent: FrequentExpense, date: Date = Date()) -> Movement {
+    ensureCategory(frequent.category)
+    return Movement(title: frequent.name, category: frequent.category, amount: frequent.amount ?? 0, kind: .expense, date: date)
+  }
+
+  func upsertFrequent(_ item: FrequentExpense) {
+    let cleaned = clean(item.name)
+    guard !cleaned.isEmpty else { return }
+    let normalized = FrequentExpense(id: item.id, name: cleaned, category: clean(item.category).isEmpty ? "Otros" : clean(item.category), amount: item.amount)
+    if let index = frequentExpenses.firstIndex(where: { $0.id == item.id }) {
+      frequentExpenses[index] = normalized
+    } else {
+      frequentExpenses.insert(normalized, at: 0)
+    }
+    ensureCategory(normalized.category)
+  }
+
+  func deleteFrequent(_ item: FrequentExpense) {
+    frequentExpenses.removeAll { $0.id == item.id }
   }
 
   func addCategory(_ name: String) {
@@ -197,6 +235,30 @@ final class FinanceStore: ObservableObject {
 
   private func saveCategories() {
     UserDefaults.standard.set(categories, forKey: categoriesKey)
+  }
+
+  private func loadFrequentExpenses() {
+    if let data = UserDefaults.standard.data(forKey: frequentExpensesKey),
+       let decoded = try? JSONDecoder().decode([FrequentExpense].self, from: data) {
+      frequentExpenses = decoded
+      return
+    }
+    frequentExpenses = [
+      FrequentExpense(name: "Supermercado", category: "Comida", amount: nil),
+      FrequentExpense(name: "Gasolina", category: "Transporte", amount: nil),
+      FrequentExpense(name: "Alquiler", category: "Casa", amount: nil),
+      FrequentExpense(name: "Luz", category: "Casa", amount: nil),
+      FrequentExpense(name: "Farmacia", category: "Salud", amount: nil),
+      FrequentExpense(name: "Restaurante", category: "Ocio", amount: nil),
+      FrequentExpense(name: "Gimnasio", category: "Salud", amount: nil),
+      FrequentExpense(name: "Suscripciones", category: "Ocio", amount: nil)
+    ]
+  }
+
+  private func saveFrequentExpenses() {
+    if let data = try? JSONEncoder().encode(frequentExpenses) {
+      UserDefaults.standard.set(data, forKey: frequentExpensesKey)
+    }
   }
 
   private func loadMovements() {
@@ -449,6 +511,7 @@ struct MovementsView: View {
               .frame(maxWidth: .infinity)
           }
           .buttonStyle(PrimarySheetButtonStyle())
+          FrequentExpensePanel(editingMovement: $editingMovement)
           ForEach(filtered) { item in
             MovementRow(movement: item) {
               editingMovement = item
@@ -613,6 +676,182 @@ struct MovementEditorView: View {
             dismiss()
           }
           .disabled(movement.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (Double(amountText.replacingOccurrences(of: ",", with: ".")) ?? 0) <= 0)
+        }
+      }
+    }
+  }
+}
+
+struct FrequentExpenseStrip: View {
+  @EnvironmentObject private var store: FinanceStore
+  @Binding var editingMovement: Movement?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack {
+        SectionTitle("Frecuentes")
+        Spacer()
+        Text("tocar y ajustar")
+          .font(.system(size: 12, weight: .bold))
+          .foregroundStyle(AppColors.muted)
+      }
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 10) {
+          ForEach(store.frequentExpenses.prefix(8)) { item in
+            FrequentExpenseCard(item: item) {
+              editingMovement = store.movement(from: item)
+            }
+            .frame(width: 134)
+          }
+        }
+      }
+    }
+  }
+}
+
+struct FrequentExpensePanel: View {
+  @EnvironmentObject private var store: FinanceStore
+  @Binding var editingMovement: Movement?
+  @State private var editingFrequent: FrequentExpense?
+
+  var body: some View {
+    Panel {
+      HStack {
+        SectionTitle("Gastos frecuentes")
+        Spacer()
+        Button {
+          editingFrequent = FrequentExpense(name: "", category: store.categories.first ?? "Comida")
+        } label: {
+          Image(systemName: "plus.circle")
+        }
+      }
+      Text("Guarda conceptos habituales. Pueden tener importe o dejarse sin dinero para rellenarlo cada mes.")
+        .font(.system(size: 13, weight: .medium))
+        .foregroundStyle(AppColors.muted)
+      ForEach(store.frequentExpenses) { item in
+        HStack(spacing: 12) {
+          Button {
+            editingMovement = store.movement(from: item)
+          } label: {
+            FrequentExpenseRow(item: item)
+          }
+          .buttonStyle(.plain)
+          Spacer()
+          Menu {
+            Button("Usar") { editingMovement = store.movement(from: item) }
+            Button("Editar") { editingFrequent = item }
+            Button("Borrar", role: .destructive) { store.deleteFrequent(item) }
+          } label: {
+            Image(systemName: "ellipsis")
+              .frame(width: 32, height: 32)
+              .foregroundStyle(AppColors.muted)
+          }
+        }
+        if item != store.frequentExpenses.last {
+          Divider()
+        }
+      }
+    }
+    .sheet(item: $editingFrequent) { item in
+      FrequentExpenseEditor(item: item)
+        .environmentObject(store)
+    }
+  }
+}
+
+struct FrequentExpenseCard: View {
+  let item: FrequentExpense
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      VStack(alignment: .leading, spacing: 8) {
+        Image(systemName: "bag")
+          .font(.system(size: 18, weight: .bold))
+          .foregroundStyle(AppColors.accent)
+        Text(item.name)
+          .font(.system(size: 14, weight: .bold))
+          .foregroundStyle(AppColors.text)
+          .lineLimit(1)
+        Text(item.amount.map { $0.formatted(.currency(code: "EUR")) } ?? "sin importe")
+          .font(.system(size: 12, weight: .medium))
+          .foregroundStyle(AppColors.muted)
+          .lineLimit(1)
+      }
+      .padding(12)
+      .frame(maxWidth: .infinity, minHeight: 96, alignment: .leading)
+      .background(AppColors.surface, in: RoundedRectangle(cornerRadius: 8))
+    }
+    .buttonStyle(.plain)
+  }
+}
+
+struct FrequentExpenseRow: View {
+  let item: FrequentExpense
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Image(systemName: "bag")
+        .foregroundStyle(AppColors.accent)
+        .frame(width: 36, height: 36)
+        .background(AppColors.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+      VStack(alignment: .leading, spacing: 3) {
+        Text(item.name)
+          .font(.system(size: 15, weight: .bold))
+          .foregroundStyle(AppColors.text)
+        Text(item.category)
+          .font(.system(size: 12, weight: .medium))
+          .foregroundStyle(AppColors.muted)
+      }
+      Spacer()
+      Text(item.amount.map { $0.formatted(.currency(code: "EUR")) } ?? "sin importe")
+        .font(.system(size: 13, weight: .bold))
+        .foregroundStyle(AppColors.muted)
+    }
+  }
+}
+
+struct FrequentExpenseEditor: View {
+  @EnvironmentObject private var store: FinanceStore
+  @Environment(\.dismiss) private var dismiss
+  @State private var item: FrequentExpense
+  @State private var amountText: String
+
+  init(item: FrequentExpense) {
+    _item = State(initialValue: item)
+    _amountText = State(initialValue: item.amount.map { String(format: "%.2f", $0) } ?? "")
+  }
+
+  var body: some View {
+    NavigationStack {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 16) {
+          AppHeader(title: item.name.isEmpty ? "Frecuente" : "Editar frecuente", subtitle: "Crea conceptos reutilizables para anadir gastos rapido.")
+          Panel {
+            LabeledField(title: "Nombre", placeholder: "Ej. Gasolina", text: $item.name)
+            LabeledField(title: "Importe opcional", placeholder: "Puede quedar vacio", text: $amountText, keyboard: .decimalPad)
+            Picker("Categoria", selection: $item.category) {
+              ForEach(store.categories, id: \.self) { category in
+                Text(category).tag(category)
+              }
+            }
+          }
+        }
+        .padding(20)
+      }
+      .background(AppColors.background.ignoresSafeArea())
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancelar") { dismiss() }
+        }
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Guardar") {
+            let parsed = Double(amountText.replacingOccurrences(of: ",", with: "."))
+            item.amount = parsed
+            store.upsertFrequent(item)
+            dismiss()
+          }
+          .disabled(item.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
       }
     }

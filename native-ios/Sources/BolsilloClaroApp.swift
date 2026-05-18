@@ -337,7 +337,6 @@ struct RootView: View {
 struct HomeView: View {
   @EnvironmentObject private var store: FinanceStore
   @Binding var editingMovement: Movement?
-  @State private var showingCalendar = false
 
   var body: some View {
     NavigationStack {
@@ -358,23 +357,12 @@ struct HomeView: View {
             Button { add(.income) } label: { Label("Ingreso", systemImage: "plus.circle") }
               .buttonStyle(SoftButtonStyle())
           }
-          Button {
-            showingCalendar = true
-          } label: {
-            Label("Ver calendario", systemImage: "calendar")
-              .frame(maxWidth: .infinity)
-          }
-          .buttonStyle(SoftButtonStyle())
           CategoryStrip()
           RecentMovements(editingMovement: $editingMovement)
         }
         .padding(20)
       }
       .background(AppColors.background.ignoresSafeArea())
-      .sheet(isPresented: $showingCalendar) {
-        CalendarView(editingMovement: $editingMovement)
-          .environmentObject(store)
-      }
     }
   }
 
@@ -451,6 +439,9 @@ struct CalendarView: View {
 
 struct InsightsView: View {
   @EnvironmentObject private var store: FinanceStore
+  @State private var showingCalendar = false
+  @State private var showingDetails = false
+  @State private var editingMovement: Movement?
 
   var body: some View {
     NavigationStack {
@@ -459,14 +450,23 @@ struct InsightsView: View {
           HStack {
             AppHeader(title: "Analisis", subtitle: "")
             Spacer()
-            Image(systemName: "calendar").foregroundStyle(AppColors.navy)
+            Button {
+              showingCalendar = true
+            } label: {
+              Image(systemName: "calendar")
+                .foregroundStyle(AppColors.navy)
+                .frame(width: 40, height: 40)
+            }
+            .buttonStyle(.plain)
           }
           MonthChip()
           Panel {
             HStack {
               SectionTitle("Gastos por categoria")
               Spacer()
-              Text("Ver detalle")
+              Button("Ver detalle") {
+                showingDetails = true
+              }
                 .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(AppColors.navy)
             }
@@ -509,6 +509,64 @@ struct InsightsView: View {
         .padding(20)
       }
       .background(AppColors.background.ignoresSafeArea())
+      .sheet(isPresented: $showingCalendar) {
+        CalendarView(editingMovement: $editingMovement)
+          .environmentObject(store)
+      }
+      .sheet(isPresented: $showingDetails) {
+        CategoryDetailView()
+          .environmentObject(store)
+      }
+      .sheet(item: $editingMovement) { movement in
+        MovementEditorView(movement: movement)
+          .environmentObject(store)
+      }
+    }
+  }
+}
+
+struct CategoryDetailView: View {
+  @EnvironmentObject private var store: FinanceStore
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    NavigationStack {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 14) {
+          AppHeader(title: "Detalle", subtitle: "Gastos por categoria")
+          ForEach(store.categoryTotals, id: \.0) { item in
+            let budget = store.budget(for: item.0)
+            Panel {
+              HStack(spacing: 12) {
+                CategoryGlyph(name: item.0)
+                VStack(alignment: .leading, spacing: 6) {
+                  HStack {
+                    Text(item.0)
+                      .font(.system(size: 17, weight: .bold))
+                      .foregroundStyle(AppColors.navy)
+                    Spacer()
+                    Text(item.1.formatted(.currency(code: "EUR")))
+                      .font(.system(size: 14, weight: .bold))
+                      .foregroundStyle(AppColors.text)
+                  }
+                  ProgressView(value: min(item.1 / budget, 1))
+                    .tint(item.1 > budget ? AppColors.danger : AppColors.positive)
+                  Text("Presupuesto \(budget.formatted(.currency(code: "EUR")))")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(AppColors.muted)
+                }
+              }
+            }
+          }
+        }
+        .padding(20)
+      }
+      .background(AppColors.background.ignoresSafeArea())
+      .toolbar {
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Cerrar") { dismiss() }
+        }
+      }
     }
   }
 }
@@ -573,6 +631,7 @@ struct CategoriesView: View {
   @State private var newCategory = ""
   @State private var selectedCategory = ""
   @State private var editingName = ""
+  @State private var editMode = false
 
   var body: some View {
     NavigationStack {
@@ -581,7 +640,16 @@ struct CategoriesView: View {
           HStack {
             AppHeader(title: "Categorias", subtitle: "")
             Spacer()
-            Button("Editar") {}
+            Button(editMode ? "Listo" : "Editar") {
+              editMode.toggle()
+              if editMode, let first = store.categories.first {
+                selectedCategory = first
+                editingName = first
+              } else {
+                selectedCategory = ""
+                editingName = ""
+              }
+            }
               .font(.system(size: 13, weight: .bold))
               .foregroundStyle(AppColors.navy)
           }
@@ -622,6 +690,7 @@ struct CategoriesView: View {
                   Button("Editar") {
                     selectedCategory = category
                     editingName = category
+                    editMode = true
                   }
                   Button("Borrar", role: .destructive) {
                     store.deleteCategory(category)
@@ -654,6 +723,7 @@ struct SettingsView: View {
   @EnvironmentObject private var store: FinanceStore
   @State private var incomeText = ""
   @State private var budgetText = ""
+  @State private var notice: SettingsNotice?
 
   var body: some View {
     NavigationStack {
@@ -662,9 +732,15 @@ struct SettingsView: View {
           AppHeader(title: "Ajustes", subtitle: "")
           SectionTitle("Finanzas")
           Panel {
-            SettingsRow(icon: "briefcase.fill", title: "Ingreso mensual", value: store.monthlyIncome.formatted(.currency(code: "EUR")))
+            Button { refreshMoneyFields() } label: {
+              SettingsRow(icon: "briefcase.fill", title: "Ingreso mensual", value: store.monthlyIncome.formatted(.currency(code: "EUR")))
+            }
+            .buttonStyle(.plain)
             Divider()
-            SettingsRow(icon: "calendar.badge.clock", title: "Presupuesto mensual", value: store.monthlyBudget.formatted(.currency(code: "EUR")))
+            Button { refreshMoneyFields() } label: {
+              SettingsRow(icon: "calendar.badge.clock", title: "Presupuesto mensual", value: store.monthlyBudget.formatted(.currency(code: "EUR")))
+            }
+            .buttonStyle(.plain)
             Divider()
             SettingsRow(icon: "dollarsign.circle.fill", title: "Moneda", value: "Euro (€)")
             LabeledField(title: "Ingresos fijos", placeholder: "0,00", text: $incomeText, keyboard: .decimalPad)
@@ -687,26 +763,59 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
             Divider()
-            SettingsRow(icon: "bell.fill", title: "Notificaciones", value: "")
+            Button {
+              notice = SettingsNotice(title: "Notificaciones", message: "Los avisos quedan listos para recordatorios del sistema en una proxima version.")
+            } label: {
+              SettingsRow(icon: "bell.fill", title: "Notificaciones", value: "")
+            }
+            .buttonStyle(.plain)
             Divider()
-            SettingsRow(icon: "icloud.fill", title: "Copia de seguridad", value: "")
+            Button {
+              notice = SettingsNotice(title: "Copia de seguridad", message: "Los datos se guardan en este dispositivo. Puedes seguir usando la app sin conexion.")
+            } label: {
+              SettingsRow(icon: "icloud.fill", title: "Copia de seguridad", value: "")
+            }
+            .buttonStyle(.plain)
           }
           SectionTitle("Informacion")
           Panel {
-            SettingsRow(icon: "info.circle.fill", title: "Acerca de Bolsillo Claro", value: "")
+            Button {
+              notice = SettingsNotice(title: "Bolsillo Claro", message: "Version 1.5. Control de ingresos, gastos, categorias, frecuentes, graficas y calendario.")
+            } label: {
+              SettingsRow(icon: "info.circle.fill", title: "Acerca de Bolsillo Claro", value: "")
+            }
+            .buttonStyle(.plain)
             Divider()
-            SettingsRow(icon: "questionmark.circle.fill", title: "Ayuda y soporte", value: "")
+            Button {
+              notice = SettingsNotice(title: "Ayuda", message: "Inicio sirve para anadir rapido. Analisis abre calendario y detalle. Movimientos permite buscar, filtrar y editar. Categorias organiza presupuestos.")
+            } label: {
+              SettingsRow(icon: "questionmark.circle.fill", title: "Ayuda y soporte", value: "")
+            }
+            .buttonStyle(.plain)
           }
         }
         .padding(20)
       }
       .background(AppColors.background.ignoresSafeArea())
       .onAppear {
-        incomeText = String(format: "%.2f", store.monthlyIncome)
-        budgetText = String(format: "%.2f", store.monthlyBudget)
+        refreshMoneyFields()
+      }
+      .alert(item: $notice) { item in
+        Alert(title: Text(item.title), message: Text(item.message), dismissButton: .default(Text("OK")))
       }
     }
   }
+
+  private func refreshMoneyFields() {
+    incomeText = String(format: "%.2f", store.monthlyIncome)
+    budgetText = String(format: "%.2f", store.monthlyBudget)
+  }
+}
+
+struct SettingsNotice: Identifiable {
+  let id = UUID()
+  let title: String
+  let message: String
 }
 
 struct MovementEditorView: View {

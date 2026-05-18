@@ -47,6 +47,8 @@ public class MainActivity extends android.app.Activity {
     private double monthlyBudget = 1200;
     private int appearanceMode = 0;
     private int currentTab = 0;
+    private int movementFilter = 0;
+    private String movementQuery = "";
     private boolean darkMode;
     private int background;
     private int surface;
@@ -125,15 +127,16 @@ public class MainActivity extends android.app.Activity {
 
     private void addMovements(LinearLayout root, int limit) {
         root.addView(sectionTitle("Movimientos"));
-        if (movements.isEmpty()) {
-            TextView empty = label("Anade un gasto o ingreso para empezar.", 15, muted, false);
+        ArrayList<Movement> visible = filteredMovements();
+        if (visible.isEmpty()) {
+            TextView empty = label(movements.isEmpty() ? "Anade un gasto o ingreso para empezar." : "No hay movimientos con este filtro.", 15, muted, false);
             empty.setGravity(Gravity.CENTER);
             empty.setBackground(rounded(surface, 8));
             root.addView(withMargins(empty, 0, 0, 0, 10), new LinearLayout.LayoutParams(-1, dp(88)));
             return;
         }
-        for (int i = 0; i < Math.min(limit, movements.size()); i++) {
-            root.addView(movementRow(movements.get(i)));
+        for (int i = 0; i < Math.min(limit, visible.size()); i++) {
+            root.addView(movementRow(visible.get(i)));
         }
     }
 
@@ -152,6 +155,9 @@ public class MainActivity extends android.app.Activity {
         if (!action.isEmpty()) {
             TextView actionView = label(action, 14, accent, true);
             actionView.setGravity(Gravity.CENTER);
+            if ("Analisis".equals(title)) actionView.setOnClickListener(v -> showCalendarDialog());
+            else if ("Movimientos".equals(title)) actionView.setOnClickListener(v -> showSearchDialog());
+            else if ("Categorias".equals(title)) actionView.setOnClickListener(v -> showCategoriesDialog());
             row.addView(actionView, new LinearLayout.LayoutParams(dp(58), dp(40)));
         }
         return row;
@@ -235,7 +241,10 @@ public class MainActivity extends android.app.Activity {
         addGap(first);
         first.addView(actionButton("Ingreso", v -> showIncomeDialog()), new LinearLayout.LayoutParams(0, dp(46), 1));
         LinearLayout second = actionLine();
-        second.addView(actionButton("Calendario", v -> showCalendarDialog()), new LinearLayout.LayoutParams(0, dp(46), 1));
+        second.addView(actionButton("Frecuentes", v -> {
+            currentTab = 2;
+            showDashboard();
+        }), new LinearLayout.LayoutParams(0, dp(46), 1));
         addGap(second);
         second.addView(actionButton("Categorias", v -> {
             currentTab = 3;
@@ -267,8 +276,15 @@ public class MainActivity extends android.app.Activity {
         LinearLayout row = actionLine();
         String[] filters = {"Todos", "Ingresos", "Gastos", "Filtro"};
         for (int i = 0; i < filters.length; i++) {
-            Button button = actionButton(filters[i], v -> { });
-            if (i == 0) {
+            final int selected = i;
+            Button button = actionButton(filters[i], v -> {
+                if (selected == 3) showSearchDialog();
+                else {
+                    movementFilter = selected;
+                    showDashboard();
+                }
+            });
+            if (movementFilter == i || (i == 3 && !movementQuery.isEmpty())) {
                 button.setTextColor(Color.WHITE);
                 button.setBackground(rounded(accent, 18));
             }
@@ -448,10 +464,11 @@ public class MainActivity extends android.app.Activity {
         return title;
     }
 
-    private View settingsRow(String icon, String title, String value) {
+    private View settingsRow(String icon, String title, String value, View.OnClickListener listener) {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, dp(8), 0, dp(8));
+        row.setOnClickListener(listener);
         TextView dot = label(icon, 13, Color.WHITE, true);
         dot.setGravity(Gravity.CENTER);
         dot.setBackground(rounded(positive, 18));
@@ -530,6 +547,25 @@ public class MainActivity extends android.app.Activity {
     private void showIncomeDialog() {
         Movement movement = new Movement(UUID.randomUUID().toString(), "", categories.isEmpty() ? "General" : categories.get(0), 0, "Ingreso");
         showMovementDialog(movement);
+    }
+
+    private void showSearchDialog() {
+        EditText input = new EditText(this);
+        input.setHint("Buscar por nombre o categoria");
+        input.setText(movementQuery);
+        new AlertDialog.Builder(this)
+            .setTitle("Filtrar movimientos")
+            .setView(input)
+            .setNegativeButton("Limpiar", (dialog, which) -> {
+                movementQuery = "";
+                showDashboard();
+            })
+            .setPositiveButton("Buscar", (dialog, which) -> {
+                movementQuery = input.getText().toString().trim();
+                currentTab = 2;
+                showDashboard();
+            })
+            .show();
     }
 
     private void showMovementDialog(Movement existing) {
@@ -667,7 +703,9 @@ public class MainActivity extends android.app.Activity {
         LinearLayout chartTop = new LinearLayout(this);
         chartTop.setGravity(Gravity.CENTER_VERTICAL);
         chartTop.addView(label("Gastos por categoria", 17, text, true), new LinearLayout.LayoutParams(0, -2, 1));
-        chartTop.addView(label("Ver detalle", 12, accent, true));
+        TextView detail = label("Ver detalle", 12, accent, true);
+        detail.setOnClickListener(v -> showInsightsDialog());
+        chartTop.addView(detail);
         chart.addView(chartTop);
         double max = Math.max(maxCategoryTotal(), 1);
         ArrayList<String> ordered = topCategories();
@@ -744,9 +782,9 @@ public class MainActivity extends android.app.Activity {
     private void addSettingsPage(LinearLayout root) {
         root.addView(sectionTitleSmall("Finanzas"));
         LinearLayout money = card();
-        money.addView(settingsRow("$", "Ingreso mensual", currency(monthlyIncome)));
-        money.addView(settingsRow("B", "Presupuesto mensual", currency(monthlyBudget)));
-        money.addView(settingsRow("E", "Moneda", "Euro"));
+        money.addView(settingsRow("$", "Ingreso mensual", currency(monthlyIncome), v -> showSettingsDialog()));
+        money.addView(settingsRow("B", "Presupuesto mensual", currency(monthlyBudget), v -> showSettingsDialog()));
+        money.addView(settingsRow("E", "Moneda", "Euro", v -> showInfo("Moneda", "La app esta configurada en euros.")));
         money.addView(withMargins(actionButton("Editar finanzas", v -> showSettingsDialog()), 0, 12, 0, 0), new LinearLayout.LayoutParams(-1, dp(48)));
         root.addView(withMargins(money, 0, 0, 0, 14));
 
@@ -770,14 +808,14 @@ public class MainActivity extends android.app.Activity {
             if (i < MODES.length - 1) addGap(themeRow);
         }
         theme.addView(withMargins(themeRow, 0, 10, 0, 12));
-        theme.addView(settingsRow("N", "Notificaciones", ""));
-        theme.addView(settingsRow("C", "Copia de seguridad", ""));
+        theme.addView(settingsRow("N", "Notificaciones", "", v -> showInfo("Notificaciones", "Los avisos quedan preparados para recordatorios del sistema en una proxima version.")));
+        theme.addView(settingsRow("C", "Copia de seguridad", "", v -> showInfo("Copia de seguridad", "Los datos se guardan localmente en este dispositivo.")));
         root.addView(withMargins(theme, 0, 0, 0, 14));
 
         root.addView(sectionTitleSmall("Informacion"));
         LinearLayout info = card();
-        info.addView(settingsRow("i", "Acerca de Bolsillo Claro", ""));
-        info.addView(settingsRow("?", "Ayuda y soporte", ""));
+        info.addView(settingsRow("i", "Acerca de Bolsillo Claro", "", v -> showInfo("Bolsillo Claro", "Version 1.5. Control de ingresos, gastos, categorias, frecuentes, graficas y calendario.")));
+        info.addView(settingsRow("?", "Ayuda y soporte", "", v -> showInfo("Ayuda", "Inicio anade rapido. Analisis abre calendario. Movimientos filtra y edita. Categorias organiza presupuestos.")));
         root.addView(info);
     }
 
@@ -822,6 +860,14 @@ public class MainActivity extends android.app.Activity {
                 configureColors();
                 showDashboard();
             })
+            .show();
+    }
+
+    private void showInfo(String title, String message) {
+        new AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton("OK", null)
             .show();
     }
 
@@ -1273,6 +1319,20 @@ public class MainActivity extends android.app.Activity {
         ordered.removeIf(category -> totalFor(category) <= 0);
         ordered.sort((a, b) -> Double.compare(totalFor(b), totalFor(a)));
         return ordered;
+    }
+
+    private ArrayList<Movement> filteredMovements() {
+        ArrayList<Movement> result = new ArrayList<>();
+        String query = movementQuery.toLowerCase(Locale.ROOT);
+        for (Movement movement : movements) {
+            if (movementFilter == 1 && !movement.kind.equals("Ingreso")) continue;
+            if (movementFilter == 2 && !movement.kind.equals("Gasto")) continue;
+            if (!query.isEmpty()
+                && !movement.title.toLowerCase(Locale.ROOT).contains(query)
+                && !movement.category.toLowerCase(Locale.ROOT).contains(query)) continue;
+            result.add(movement);
+        }
+        return result;
     }
 
     private Movement largestExpense() {

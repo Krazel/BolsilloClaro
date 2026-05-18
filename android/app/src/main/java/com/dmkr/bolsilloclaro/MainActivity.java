@@ -91,6 +91,7 @@ public class MainActivity extends android.app.Activity {
         root.addView(balanceCard());
         root.addView(spendingCard());
         root.addView(actionRow());
+        root.addView(insightCard());
         root.addView(categoryScroller());
         root.addView(sectionTitle("Movimientos"));
         if (movements.isEmpty()) {
@@ -190,13 +191,29 @@ public class MainActivity extends android.app.Activity {
     }
 
     private View actionRow() {
+        LinearLayout grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout first = actionLine();
+        first.addView(actionButton("Ingreso", v -> showIncomeDialog()), new LinearLayout.LayoutParams(0, dp(46), 1));
+        addGap(first);
+        first.addView(actionButton("Analisis", v -> showInsightsDialog()), new LinearLayout.LayoutParams(0, dp(46), 1));
+        LinearLayout second = actionLine();
+        second.addView(actionButton("Categorias", v -> showCategoriesDialog()), new LinearLayout.LayoutParams(0, dp(46), 1));
+        addGap(second);
+        second.addView(actionButton("Ajustes", v -> showSettingsDialog()), new LinearLayout.LayoutParams(0, dp(46), 1));
+        grid.addView(first);
+        grid.addView(withMargins(second, 0, 10, 0, 0));
+        return withMargins(grid, 0, 0, 0, 14);
+    }
+
+    private LinearLayout actionLine() {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.addView(actionButton("Ingreso", v -> showIncomeDialog()), new LinearLayout.LayoutParams(0, dp(46), 1));
-        View gap = new View(this);
-        row.addView(gap, new LinearLayout.LayoutParams(dp(10), 1));
-        row.addView(actionButton("Categorias", v -> showCategoriesDialog()), new LinearLayout.LayoutParams(0, dp(46), 1));
-        return withMargins(row, 0, 0, 0, 14);
+        return row;
+    }
+
+    private void addGap(LinearLayout row) {
+        row.addView(new View(this), new LinearLayout.LayoutParams(dp(10), 1));
     }
 
     private Button actionButton(String title, View.OnClickListener listener) {
@@ -209,6 +226,41 @@ public class MainActivity extends android.app.Activity {
         button.setBackground(rounded(surface, 8));
         button.setOnClickListener(listener);
         return button;
+    }
+
+    private View insightCard() {
+        LinearLayout card = card();
+        card.setOnClickListener(v -> showInsightsDialog());
+        LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.addView(label("Resumen rapido", 16, text, true), new LinearLayout.LayoutParams(0, -2, 1));
+        top.addView(label((int) Math.round(savingsRate() * 100) + "% ahorro", 13, positive, true));
+        card.addView(top);
+
+        LinearLayout bars = new LinearLayout(this);
+        bars.setOrientation(LinearLayout.HORIZONTAL);
+        bars.setGravity(Gravity.BOTTOM);
+        double max = Math.max(maxCategoryTotal(), 1);
+        for (String category : topCategories()) {
+            LinearLayout item = new LinearLayout(this);
+            item.setOrientation(LinearLayout.VERTICAL);
+            item.setGravity(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+            View bar = new View(this);
+            bar.setBackground(rounded(accent, 4));
+            item.addView(bar, new LinearLayout.LayoutParams(dp(22), Math.max(dp(14), (int) (dp(74) * totalFor(category) / max))));
+            TextView letter = label(category.substring(0, 1), 11, muted, true);
+            letter.setGravity(Gravity.CENTER);
+            item.addView(letter);
+            bars.addView(item, new LinearLayout.LayoutParams(0, dp(96), 1));
+        }
+        card.addView(withMargins(bars, 0, 12, 0, 6));
+
+        Movement largest = largestExpense();
+        if (largest != null) {
+            card.addView(label("Mayor gasto: " + largest.title + " · " + currency(largest.amount), 13, muted, false));
+        }
+        return withMargins(card, 0, 0, 0, 14);
     }
 
     private View categoryScroller() {
@@ -413,6 +465,99 @@ public class MainActivity extends android.app.Activity {
                 showDashboard();
             })
             .show();
+    }
+
+    private void showInsightsDialog() {
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        wrapper.setPadding(dp(18), dp(8), dp(18), dp(8));
+        scroll.addView(wrapper);
+
+        LinearLayout metrics = new LinearLayout(this);
+        metrics.setOrientation(LinearLayout.VERTICAL);
+        metrics.setBackground(rounded(surface, 8));
+        metrics.setPadding(dp(14), dp(14), dp(14), dp(14));
+        LinearLayout lineOne = actionLine();
+        lineOne.addView(metricTile("Ingresos", currency(incomeTotal()), positive), new LinearLayout.LayoutParams(0, dp(72), 1));
+        addGap(lineOne);
+        lineOne.addView(metricTile("Gastos", currency(spent()), danger), new LinearLayout.LayoutParams(0, dp(72), 1));
+        LinearLayout lineTwo = actionLine();
+        lineTwo.addView(metricTile("Disponible", currency(available()), available() >= 0 ? positive : danger), new LinearLayout.LayoutParams(0, dp(72), 1));
+        addGap(lineTwo);
+        lineTwo.addView(metricTile("Ahorro", (int) Math.round(savingsRate() * 100) + "%", accent), new LinearLayout.LayoutParams(0, dp(72), 1));
+        metrics.addView(lineOne);
+        metrics.addView(withMargins(lineTwo, 0, 10, 0, 0));
+        wrapper.addView(withMargins(metrics, 0, 0, 0, 14));
+
+        LinearLayout chart = new LinearLayout(this);
+        chart.setOrientation(LinearLayout.VERTICAL);
+        chart.setBackground(rounded(surface, 8));
+        chart.setPadding(dp(14), dp(14), dp(14), dp(14));
+        chart.addView(label("Gastos por categoria", 17, text, true));
+        double max = Math.max(maxCategoryTotal(), 1);
+        ArrayList<String> ordered = topCategories();
+        if (ordered.isEmpty()) {
+            TextView empty = label("Todavia no hay gastos para graficar.", 14, muted, false);
+            empty.setGravity(Gravity.CENTER);
+            chart.addView(empty, new LinearLayout.LayoutParams(-1, dp(90)));
+        } else {
+            for (String category : ordered) {
+                chart.addView(categoryBar(category, totalFor(category), max));
+            }
+        }
+        wrapper.addView(withMargins(chart, 0, 0, 0, 14));
+
+        LinearLayout budget = new LinearLayout(this);
+        budget.setOrientation(LinearLayout.VERTICAL);
+        budget.setBackground(rounded(surface, 8));
+        budget.setPadding(dp(14), dp(14), dp(14), dp(14));
+        budget.addView(label("Presupuesto", 17, text, true));
+        ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        int percent = (int) Math.round(Math.min(spent() / Math.max(monthlyBudget, 1), 1) * 100);
+        bar.setMax(100);
+        bar.setProgress(percent);
+        budget.addView(withMargins(bar, 0, 14, 0, 10), new LinearLayout.LayoutParams(-1, dp(12)));
+        budget.addView(label("Has usado " + percent + "% de " + currency(monthlyBudget), 14, muted, false));
+        wrapper.addView(budget);
+
+        new AlertDialog.Builder(this)
+            .setTitle("Analisis")
+            .setView(scroll)
+            .setPositiveButton("Cerrar", null)
+            .show();
+    }
+
+    private View metricTile(String title, String value, int color) {
+        LinearLayout tile = new LinearLayout(this);
+        tile.setOrientation(LinearLayout.VERTICAL);
+        tile.setPadding(dp(12), dp(10), dp(12), dp(10));
+        tile.setBackground(rounded(background, 8));
+        tile.addView(label(title, 13, muted, true));
+        TextView val = label(value, 18, color, true);
+        val.setSingleLine(true);
+        tile.addView(val);
+        return tile;
+    }
+
+    private View categoryBar(String category, double amount, double max) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(0, dp(12), 0, 0);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.addView(label(category, 14, text, true), new LinearLayout.LayoutParams(0, -2, 1));
+        row.addView(label(currency(amount), 13, muted, true));
+        box.addView(row);
+
+        FrameLayout track = new FrameLayout(this);
+        track.setBackground(rounded(background, 5));
+        View fill = new View(this);
+        fill.setBackground(rounded(accent, 5));
+        int fillWidth = Math.max(dp(8), (int) (getResources().getDisplayMetrics().widthPixels * 0.72 * amount / max));
+        track.addView(fill, new FrameLayout.LayoutParams(fillWidth, dp(10), Gravity.LEFT));
+        box.addView(withMargins(track, 0, 7, 0, 0), new LinearLayout.LayoutParams(-1, dp(10)));
+        return box;
     }
 
     private void showCategoriesDialog() {
@@ -620,12 +765,39 @@ public class MainActivity extends android.app.Activity {
         return incomeTotal() - spent();
     }
 
+    private double savingsRate() {
+        if (incomeTotal() <= 0) return 0;
+        return Math.max(0, Math.min(available() / incomeTotal(), 1));
+    }
+
     private double totalFor(String category) {
         double total = 0;
         for (Movement movement : movements) {
             if (movement.category.equals(category) && movement.kind.equals("Gasto")) total += movement.amount;
         }
         return total;
+    }
+
+    private double maxCategoryTotal() {
+        double max = 0;
+        for (String category : categories) max = Math.max(max, totalFor(category));
+        return max;
+    }
+
+    private ArrayList<String> topCategories() {
+        ArrayList<String> ordered = new ArrayList<>(categories);
+        ordered.removeIf(category -> totalFor(category) <= 0);
+        ordered.sort((a, b) -> Double.compare(totalFor(b), totalFor(a)));
+        return ordered;
+    }
+
+    private Movement largestExpense() {
+        Movement largest = null;
+        for (Movement movement : movements) {
+            if (!movement.kind.equals("Gasto")) continue;
+            if (largest == null || movement.amount > largest.amount) largest = movement;
+        }
+        return largest;
     }
 
     private double parseAmount(String value) {

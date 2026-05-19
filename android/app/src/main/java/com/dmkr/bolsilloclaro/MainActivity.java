@@ -49,6 +49,7 @@ public class MainActivity extends android.app.Activity {
     private int currentTab = 0;
     private int movementFilter = 0;
     private String movementQuery = "";
+    private final Calendar selectedMonth = Calendar.getInstance();
     private boolean darkMode;
     private int background;
     private int surface;
@@ -241,7 +242,7 @@ public class MainActivity extends android.app.Activity {
         addGap(first);
         first.addView(actionButton("Ingreso", v -> showIncomeDialog()), new LinearLayout.LayoutParams(0, dp(46), 1));
         LinearLayout second = actionLine();
-        second.addView(actionButton("Frecuentes", v -> {
+        second.addView(actionButton("Plantillas", v -> {
             currentTab = 2;
             showDashboard();
         }), new LinearLayout.LayoutParams(0, dp(46), 1));
@@ -266,9 +267,10 @@ public class MainActivity extends android.app.Activity {
     }
 
     private View monthChip() {
-        TextView chip = label("Mayo 2024  v", 15, text, true);
+        TextView chip = label(monthTitle() + "  v", 15, text, true);
         chip.setGravity(Gravity.CENTER);
         chip.setBackground(roundedStroke(surface, 10));
+        chip.setOnClickListener(v -> showMonthDialog());
         return withMargins(chip, 0, 0, 0, 8);
     }
 
@@ -298,9 +300,22 @@ public class MainActivity extends android.app.Activity {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, dp(4), 0, dp(10));
-        row.addView(label("Mayo 2024", 16, text, true), new LinearLayout.LayoutParams(0, -2, 1));
+        row.addView(label(monthTitle(), 16, text, true), new LinearLayout.LayoutParams(0, -2, 1));
         row.addView(label("v", 13, muted, true));
+        row.setOnClickListener(v -> showMonthDialog());
         return row;
+    }
+
+    private void showMonthDialog() {
+        new AlertDialog.Builder(this)
+            .setTitle("Cambiar mes")
+            .setItems(new String[]{"Mes anterior", "Mes actual", "Mes siguiente"}, (dialog, which) -> {
+                if (which == 0) selectedMonth.add(Calendar.MONTH, -1);
+                else if (which == 1) selectedMonth.setTime(new Date());
+                else selectedMonth.add(Calendar.MONTH, 1);
+                showDashboard();
+            })
+            .show();
     }
 
     private Button actionButton(String title, View.OnClickListener listener) {
@@ -397,7 +412,7 @@ public class MainActivity extends android.app.Activity {
         wrapper.setOrientation(LinearLayout.VERTICAL);
         LinearLayout title = new LinearLayout(this);
         title.setOrientation(LinearLayout.HORIZONTAL);
-        title.addView(label("Frecuentes", 20, text, true), new LinearLayout.LayoutParams(0, -2, 1));
+        title.addView(label("Plantillas rapidas", 20, text, true), new LinearLayout.LayoutParams(0, -2, 1));
         title.addView(label("tocar y ajustar", 12, muted, true));
         wrapper.addView(title);
 
@@ -427,10 +442,10 @@ public class MainActivity extends android.app.Activity {
         LinearLayout panel = card();
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.addView(label("Gastos frecuentes", 18, text, true), new LinearLayout.LayoutParams(0, -2, 1));
+        header.addView(label("Plantillas rapidas", 18, text, true), new LinearLayout.LayoutParams(0, -2, 1));
         header.addView(actionButton("Nuevo", v -> showFrequentDialog(null)), new LinearLayout.LayoutParams(dp(86), dp(42)));
         panel.addView(header);
-        panel.addView(label("Conceptos guardados. Pueden llevar importe o quedarse sin dinero.", 13, muted, false));
+        panel.addView(label("Conceptos guardados para anadir gastos rapido. Pueden llevar importe o quedar vacios.", 13, muted, false));
         for (FrequentExpense item : frequentExpenses) {
             LinearLayout row = new LinearLayout(this);
             row.setGravity(Gravity.CENTER_VERTICAL);
@@ -545,7 +560,7 @@ public class MainActivity extends android.app.Activity {
     }
 
     private void showIncomeDialog() {
-        Movement movement = new Movement(UUID.randomUUID().toString(), "", categories.isEmpty() ? "General" : categories.get(0), 0, "Ingreso");
+        Movement movement = new Movement(UUID.randomUUID().toString(), "", categories.isEmpty() ? "General" : categories.get(0), 0, "Ingreso", new Date().getTime());
         showMovementDialog(movement);
     }
 
@@ -570,8 +585,8 @@ public class MainActivity extends android.app.Activity {
 
     private void showMovementDialog(Movement existing) {
         Movement draft = existing == null
-            ? new Movement(UUID.randomUUID().toString(), "", categories.isEmpty() ? "General" : categories.get(0), 0, "Gasto")
-            : new Movement(existing.id, existing.title, existing.category, existing.amount, existing.kind);
+            ? new Movement(UUID.randomUUID().toString(), "", categories.isEmpty() ? "General" : categories.get(0), 0, "Gasto", new Date().getTime())
+            : new Movement(existing.id, existing.title, existing.category, existing.amount, existing.kind, existing.dateMillis);
 
         LinearLayout form = new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
@@ -661,7 +676,7 @@ public class MainActivity extends android.app.Activity {
         form.addView(categoryInput);
 
         new AlertDialog.Builder(this)
-            .setTitle(existing == null ? "Nuevo frecuente" : "Editar frecuente")
+            .setTitle(existing == null ? "Nueva plantilla" : "Editar plantilla")
             .setView(form)
             .setNegativeButton("Cancelar", null)
             .setPositiveButton("Guardar", (dialog, which) -> {
@@ -681,7 +696,7 @@ public class MainActivity extends android.app.Activity {
 
     private Movement movementFrom(FrequentExpense item) {
         addCategory(item.category);
-        return new Movement(UUID.randomUUID().toString(), item.name, item.category, Math.max(0, item.amount), "Gasto");
+        return new Movement(UUID.randomUUID().toString(), item.name, item.category, Math.max(0, item.amount), "Gasto", new Date().getTime());
     }
 
     private void addInsights(LinearLayout root) {
@@ -750,8 +765,10 @@ public class MainActivity extends android.app.Activity {
     private void addCategoriesPage(LinearLayout root) {
         for (String category : new ArrayList<>(categories)) {
             LinearLayout card = card();
+            card.setOnClickListener(v -> showCategoryOptions(category));
             LinearLayout row = new LinearLayout(this);
             row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setOnClickListener(v -> showCategoryOptions(category));
             row.addView(glyph(category, 42));
             LinearLayout copy = new LinearLayout(this);
             copy.setOrientation(LinearLayout.VERTICAL);
@@ -939,8 +956,8 @@ public class MainActivity extends android.app.Activity {
         wrapper.setPadding(dp(18), dp(8), dp(18), dp(8));
         scroll.addView(wrapper);
 
-        Calendar calendar = Calendar.getInstance();
-        int today = calendar.get(Calendar.DAY_OF_MONTH);
+        Calendar calendar = (Calendar) selectedMonth.clone();
+        int today = Calendar.getInstance().get(Calendar.DAY_OF_MONTH);
         int maxDay = calendar.getActualMaximum(Calendar.DAY_OF_MONTH);
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
@@ -952,13 +969,14 @@ public class MainActivity extends android.app.Activity {
             row.setOrientation(LinearLayout.HORIZONTAL);
             for (int day = start; day < start + 7 && day <= maxDay; day++) {
                 final int selectedDay = day;
-                Calendar date = Calendar.getInstance();
+                Calendar date = (Calendar) selectedMonth.clone();
                 date.set(Calendar.DAY_OF_MONTH, selectedDay);
                 double expense = totalOn(date, "Gasto");
                 double income = totalOn(date, "Ingreso");
-                TextView cell = label(String.valueOf(day) + "\n" + (expense > 0 ? "*" : " ") + (income > 0 ? "*" : " "), 13, day == today ? Color.WHITE : text, true);
+                boolean isToday = sameDay(date, Calendar.getInstance());
+                TextView cell = label(String.valueOf(day) + "\n" + (expense > 0 ? "*" : " ") + (income > 0 ? "*" : " "), 13, isToday ? Color.WHITE : text, true);
                 cell.setGravity(Gravity.CENTER);
-                cell.setBackground(rounded(day == today ? accent : background, 8));
+                cell.setBackground(rounded(isToday ? accent : background, 8));
                 cell.setOnClickListener(v -> showDayDialog(selectedDay));
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(54), 1);
                 lp.setMargins(dp(3), dp(3), dp(3), dp(3));
@@ -969,28 +987,30 @@ public class MainActivity extends android.app.Activity {
         wrapper.addView(grid);
 
         new AlertDialog.Builder(this)
-            .setTitle("Calendario")
+            .setTitle("Calendario - " + monthTitle())
             .setView(scroll)
             .setPositiveButton("Cerrar", null)
             .show();
     }
 
     private void showDayDialog(int day) {
-        Calendar date = Calendar.getInstance();
+        Calendar date = (Calendar) selectedMonth.clone();
         date.set(Calendar.DAY_OF_MONTH, day);
         LinearLayout wrapper = new LinearLayout(this);
         wrapper.setOrientation(LinearLayout.VERTICAL);
         wrapper.setPadding(dp(18), dp(8), dp(18), dp(8));
         wrapper.addView(label("Gastos: " + currency(totalOn(date, "Gasto")), 15, muted, false));
         wrapper.addView(label("Ingresos: " + currency(totalOn(date, "Ingreso")), 15, muted, false));
+        wrapper.addView(withMargins(actionButton("Anadir en este dia", v ->
+            showMovementDialog(new Movement(UUID.randomUUID().toString(), "", categories.isEmpty() ? "General" : categories.get(0), 0, "Gasto", date.getTimeInMillis()))
+        ), 0, 10, 0, 10), new LinearLayout.LayoutParams(-1, dp(46)));
         for (Movement movement : movementsOn(date)) {
             wrapper.addView(movementRow(movement));
         }
         new AlertDialog.Builder(this)
             .setTitle("Dia " + day)
             .setView(wrapper)
-            .setNegativeButton("Cerrar", null)
-            .setPositiveButton("Anadir", (dialog, which) -> showMovementDialog(new Movement(UUID.randomUUID().toString(), "", categories.isEmpty() ? "General" : categories.get(0), 0, "Gasto")))
+            .setPositiveButton("Cerrar", null)
             .show();
     }
 
@@ -1216,7 +1236,8 @@ public class MainActivity extends android.app.Activity {
                         item.getString("title"),
                         item.getString("category"),
                         amount,
-                        kind
+                        kind,
+                        item.optLong("date", new Date().getTime())
                     ));
                 }
                 return;
@@ -1224,9 +1245,9 @@ public class MainActivity extends android.app.Activity {
                 movements.clear();
             }
         }
-        movements.add(new Movement(UUID.randomUUID().toString(), "Supermercado", "Comida", 46.20, "Gasto"));
-        movements.add(new Movement(UUID.randomUUID().toString(), "Metro", "Transporte", 12.80, "Gasto"));
-        movements.add(new Movement(UUID.randomUUID().toString(), "Alquiler", "Casa", 620, "Gasto"));
+        movements.add(new Movement(UUID.randomUUID().toString(), "Supermercado", "Comida", 46.20, "Gasto", new Date().getTime()));
+        movements.add(new Movement(UUID.randomUUID().toString(), "Metro", "Transporte", 12.80, "Gasto", new Date().getTime()));
+        movements.add(new Movement(UUID.randomUUID().toString(), "Alquiler", "Casa", 620, "Gasto", new Date().getTime()));
     }
 
     private void saveMovements() {
@@ -1239,6 +1260,7 @@ public class MainActivity extends android.app.Activity {
                 item.put("category", movement.category);
                 item.put("amount", movement.amount);
                 item.put("kind", movement.kind);
+                item.put("date", movement.dateMillis);
                 array.put(item);
             }
         } catch (Exception ignored) { }
@@ -1262,7 +1284,7 @@ public class MainActivity extends android.app.Activity {
     private double incomeTotal() {
         double total = monthlyIncome;
         for (Movement movement : movements) {
-            if (movement.kind.equals("Ingreso")) total += movement.amount;
+            if (movement.kind.equals("Ingreso") && inSelectedMonth(movement)) total += movement.amount;
         }
         return total;
     }
@@ -1270,7 +1292,7 @@ public class MainActivity extends android.app.Activity {
     private double spent() {
         double total = 0;
         for (Movement movement : movements) {
-            if (movement.kind.equals("Gasto")) total += movement.amount;
+            if (movement.kind.equals("Gasto") && inSelectedMonth(movement)) total += movement.amount;
         }
         return total;
     }
@@ -1287,24 +1309,24 @@ public class MainActivity extends android.app.Activity {
     private double totalFor(String category) {
         double total = 0;
         for (Movement movement : movements) {
-            if (movement.category.equals(category) && movement.kind.equals("Gasto")) total += movement.amount;
+            if (movement.category.equals(category) && movement.kind.equals("Gasto") && inSelectedMonth(movement)) total += movement.amount;
         }
         return total;
     }
 
     private double totalOn(Calendar date, String kind) {
-        if (date.get(Calendar.DAY_OF_MONTH) != Calendar.getInstance().get(Calendar.DAY_OF_MONTH)) return 0;
         double total = 0;
         for (Movement movement : movements) {
-            if (movement.kind.equals(kind)) total += movement.amount;
+            if (movement.kind.equals(kind) && sameDay(calendarFor(movement), date)) total += movement.amount;
         }
         return total;
     }
 
     private ArrayList<Movement> movementsOn(Calendar date) {
         ArrayList<Movement> result = new ArrayList<>();
-        if (date.get(Calendar.DAY_OF_MONTH) != Calendar.getInstance().get(Calendar.DAY_OF_MONTH)) return result;
-        result.addAll(movements);
+        for (Movement movement : movements) {
+            if (sameDay(calendarFor(movement), date)) result.add(movement);
+        }
         return result;
     }
 
@@ -1325,6 +1347,7 @@ public class MainActivity extends android.app.Activity {
         ArrayList<Movement> result = new ArrayList<>();
         String query = movementQuery.toLowerCase(Locale.ROOT);
         for (Movement movement : movements) {
+            if (!inSelectedMonth(movement)) continue;
             if (movementFilter == 1 && !movement.kind.equals("Ingreso")) continue;
             if (movementFilter == 2 && !movement.kind.equals("Gasto")) continue;
             if (!query.isEmpty()
@@ -1338,10 +1361,31 @@ public class MainActivity extends android.app.Activity {
     private Movement largestExpense() {
         Movement largest = null;
         for (Movement movement : movements) {
-            if (!movement.kind.equals("Gasto")) continue;
+            if (!movement.kind.equals("Gasto") || !inSelectedMonth(movement)) continue;
             if (largest == null || movement.amount > largest.amount) largest = movement;
         }
         return largest;
+    }
+
+    private boolean inSelectedMonth(Movement movement) {
+        Calendar date = calendarFor(movement);
+        return date.get(Calendar.YEAR) == selectedMonth.get(Calendar.YEAR)
+            && date.get(Calendar.MONTH) == selectedMonth.get(Calendar.MONTH);
+    }
+
+    private Calendar calendarFor(Movement movement) {
+        Calendar date = Calendar.getInstance();
+        date.setTimeInMillis(movement.dateMillis);
+        return date;
+    }
+
+    private boolean sameDay(Calendar a, Calendar b) {
+        return a.get(Calendar.YEAR) == b.get(Calendar.YEAR)
+            && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR);
+    }
+
+    private String monthTitle() {
+        return new SimpleDateFormat("MMMM yyyy", new Locale("es", "ES")).format(selectedMonth.getTime());
     }
 
     private double parseAmount(String value) {
@@ -1443,13 +1487,15 @@ public class MainActivity extends android.app.Activity {
         String category;
         double amount;
         String kind;
+        long dateMillis;
 
-        Movement(String id, String title, String category, double amount, String kind) {
+        Movement(String id, String title, String category, double amount, String kind, long dateMillis) {
             this.id = id;
             this.title = title;
             this.category = category;
             this.amount = amount;
             this.kind = kind;
+            this.dateMillis = dateMillis;
         }
 
         double signedAmount() {

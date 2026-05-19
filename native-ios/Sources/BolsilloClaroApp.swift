@@ -69,6 +69,7 @@ final class FinanceStore: ObservableObject {
   @Published var categories: [String] = [] { didSet { saveCategories() } }
   @Published var frequentExpenses: [FrequentExpense] = [] { didSet { saveFrequentExpenses() } }
   @Published var appearanceMode: AppearanceMode = .system { didSet { saveSettings() } }
+  @Published var selectedMonth: Date = Date()
 
   private let movementsKey = "movements.v3"
   private let legacyMovementsKey = "movements.v2"
@@ -95,11 +96,11 @@ final class FinanceStore: ObservableObject {
   }
 
   var monthIncome: Double {
-    monthlyIncome + movements.filter { $0.kind == .income }.reduce(0) { $0 + $1.amount }
+    monthlyIncome + monthMovements.filter { $0.kind == .income }.reduce(0) { $0 + $1.amount }
   }
 
   var spentThisMonth: Double {
-    movements.filter { $0.kind == .expense }.reduce(0) { $0 + $1.amount }
+    monthMovements.filter { $0.kind == .expense }.reduce(0) { $0 + $1.amount }
   }
 
   var available: Double {
@@ -113,7 +114,7 @@ final class FinanceStore: ObservableObject {
 
   var categoryTotals: [(String, Double)] {
     categories.map { category in
-      let total = movements
+      let total = monthMovements
         .filter { $0.kind == .expense && $0.category == category }
         .reduce(0) { $0 + $1.amount }
       return (category, total)
@@ -122,6 +123,22 @@ final class FinanceStore: ObservableObject {
 
   var topCategoryTotals: [(String, Double)] {
     categoryTotals.filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }
+  }
+
+  var monthMovements: [Movement] {
+    movements.filter { Calendar.current.isDate($0.date, equalTo: selectedMonth, toGranularity: .month) }
+  }
+
+  var selectedMonthTitle: String {
+    selectedMonth.formatted(.dateTime.month(.wide).year())
+  }
+
+  func moveSelectedMonth(by value: Int) {
+    selectedMonth = Calendar.current.date(byAdding: .month, value: value, to: selectedMonth) ?? selectedMonth
+  }
+
+  func resetSelectedMonth() {
+    selectedMonth = Date()
   }
 
   func budget(for category: String) -> Double {
@@ -375,11 +392,12 @@ struct CalendarView: View {
   @EnvironmentObject private var store: FinanceStore
   @Binding var editingMovement: Movement?
   @State private var selectedDate = Date()
+  @State private var localMovement: Movement?
 
   private var days: [Date] {
     let calendar = Calendar.current
-    let start = calendar.date(from: calendar.dateComponents([.year, .month], from: selectedDate)) ?? selectedDate
-    let range = calendar.range(of: .day, in: .month, for: selectedDate) ?? 1..<31
+    let start = calendar.date(from: calendar.dateComponents([.year, .month], from: store.selectedMonth)) ?? store.selectedMonth
+    let range = calendar.range(of: .day, in: .month, for: store.selectedMonth) ?? 1..<31
     return range.compactMap { calendar.date(byAdding: .day, value: $0 - 1, to: start) }
   }
 
@@ -387,7 +405,13 @@ struct CalendarView: View {
     NavigationStack {
       ScrollView {
         VStack(alignment: .leading, spacing: 16) {
-          AppHeader(title: "Calendario", subtitle: selectedDate.formatted(.dateTime.month(.wide).year()))
+          HStack {
+            AppHeader(title: "Calendario", subtitle: store.selectedMonthTitle)
+            Spacer()
+            Button { store.moveSelectedMonth(by: -1) } label: { Image(systemName: "chevron.left") }
+            Button { store.resetSelectedMonth() } label: { Text("Hoy") }
+            Button { store.moveSelectedMonth(by: 1) } label: { Image(systemName: "chevron.right") }
+          }
           Panel {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 7), spacing: 8) {
               ForEach(days, id: \.self) { day in
@@ -413,7 +437,7 @@ struct CalendarView: View {
               }
               Spacer()
               Button {
-                editingMovement = Movement(title: "", category: store.categories.first ?? "General", amount: 0, kind: .expense, date: selectedDate)
+                localMovement = Movement(title: "", category: store.categories.first ?? "General", amount: 0, kind: .expense, date: selectedDate)
               } label: {
                 Image(systemName: "plus")
                   .frame(width: 40, height: 40)
@@ -423,7 +447,7 @@ struct CalendarView: View {
             }
             ForEach(store.movements(on: selectedDate)) { item in
               MovementRow(movement: item) {
-                editingMovement = item
+                localMovement = item
               } onDelete: {
                 store.delete(item)
               }
@@ -433,6 +457,13 @@ struct CalendarView: View {
         .padding(20)
       }
       .background(AppColors.background.ignoresSafeArea())
+      .onAppear {
+        selectedDate = store.selectedMonth
+      }
+      .sheet(item: $localMovement) { movement in
+        MovementEditorView(movement: movement)
+          .environmentObject(store)
+      }
     }
   }
 }
@@ -578,7 +609,7 @@ struct MovementsView: View {
   @State private var filter: MovementKind?
 
   private var filtered: [Movement] {
-    store.movements.filter { movement in
+    store.monthMovements.filter { movement in
       let matchesText = query.isEmpty || movement.title.localizedCaseInsensitiveContains(query) || movement.category.localizedCaseInsensitiveContains(query)
       let matchesKind = filter == nil || movement.kind == filter
       return matchesText && matchesKind
@@ -699,6 +730,12 @@ struct CategoriesView: View {
                   Image(systemName: "ellipsis")
                     .foregroundStyle(AppColors.muted)
                 }
+              }
+              .contentShape(Rectangle())
+              .onTapGesture {
+                selectedCategory = category
+                editingName = category
+                editMode = true
               }
               if selectedCategory == category {
                 LabeledField(title: "Nuevo nombre", placeholder: "Nombre", text: $editingName)
@@ -878,7 +915,7 @@ struct FrequentExpenseStrip: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
       HStack {
-        SectionTitle("Frecuentes")
+        SectionTitle("Plantillas rapidas")
         Spacer()
         Text("tocar y ajustar")
           .font(.system(size: 12, weight: .bold))
@@ -906,7 +943,7 @@ struct FrequentExpensePanel: View {
   var body: some View {
     Panel {
       HStack {
-        SectionTitle("Gastos frecuentes")
+        SectionTitle("Plantillas rapidas")
         Spacer()
         Button {
           editingFrequent = FrequentExpense(name: "", category: store.categories.first ?? "Comida")
@@ -914,7 +951,7 @@ struct FrequentExpensePanel: View {
           Image(systemName: "plus.circle")
         }
       }
-      Text("Guarda conceptos habituales. Pueden tener importe o dejarse sin dinero para rellenarlo cada mes.")
+      Text("Conceptos guardados para anadir gastos rapido. Pueden llevar importe o quedarse vacios.")
         .font(.system(size: 13, weight: .medium))
         .foregroundStyle(AppColors.muted)
       ForEach(store.frequentExpenses) { item in
@@ -1015,7 +1052,7 @@ struct FrequentExpenseEditor: View {
     NavigationStack {
       ScrollView {
         VStack(alignment: .leading, spacing: 16) {
-          AppHeader(title: item.name.isEmpty ? "Frecuente" : "Editar frecuente", subtitle: "Crea conceptos reutilizables para anadir gastos rapido.")
+          AppHeader(title: item.name.isEmpty ? "Plantilla" : "Editar plantilla", subtitle: "Crea conceptos reutilizables para anadir gastos rapido.")
           Panel {
             LabeledField(title: "Nombre", placeholder: "Ej. Gasolina", text: $item.name)
             LabeledField(title: "Importe opcional", placeholder: "Puede quedar vacio", text: $amountText, keyboard: .decimalPad)
@@ -1328,35 +1365,53 @@ struct AppHeader: View {
 }
 
 struct MonthChip: View {
+  @EnvironmentObject private var store: FinanceStore
+
   var body: some View {
-    HStack {
-      Text("Mayo 2024")
-        .font(.system(size: 15, weight: .semibold))
-      Spacer()
-      Image(systemName: "chevron.down")
-        .font(.system(size: 12, weight: .bold))
+    Menu {
+      Button("Mes anterior") { store.moveSelectedMonth(by: -1) }
+      Button("Mes actual") { store.resetSelectedMonth() }
+      Button("Mes siguiente") { store.moveSelectedMonth(by: 1) }
+    } label: {
+      HStack {
+        Text(store.selectedMonthTitle.capitalized)
+          .font(.system(size: 15, weight: .semibold))
+        Spacer()
+        Image(systemName: "chevron.down")
+          .font(.system(size: 12, weight: .bold))
+      }
+      .foregroundStyle(AppColors.navy)
+      .padding(.horizontal, 14)
+      .frame(width: 170, height: 44)
+      .background(.white, in: RoundedRectangle(cornerRadius: 10))
+      .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppColors.line, lineWidth: 1))
     }
-    .foregroundStyle(AppColors.navy)
-    .padding(.horizontal, 14)
-    .frame(width: 150, height: 44)
-    .background(.white, in: RoundedRectangle(cornerRadius: 10))
-    .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppColors.line, lineWidth: 1))
+    .buttonStyle(.plain)
   }
 }
 
 struct MonthDivider: View {
+  @EnvironmentObject private var store: FinanceStore
+
   var body: some View {
-    HStack {
-      Text("Mayo 2024")
-        .font(.system(size: 16, weight: .bold))
-        .foregroundStyle(AppColors.navy)
-      Spacer()
-      Image(systemName: "chevron.down")
-        .font(.system(size: 12, weight: .bold))
-        .foregroundStyle(AppColors.muted)
+    Menu {
+      Button("Mes anterior") { store.moveSelectedMonth(by: -1) }
+      Button("Mes actual") { store.resetSelectedMonth() }
+      Button("Mes siguiente") { store.moveSelectedMonth(by: 1) }
+    } label: {
+      HStack {
+        Text(store.selectedMonthTitle.capitalized)
+          .font(.system(size: 16, weight: .bold))
+          .foregroundStyle(AppColors.navy)
+        Spacer()
+        Image(systemName: "chevron.down")
+          .font(.system(size: 12, weight: .bold))
+          .foregroundStyle(AppColors.muted)
+      }
+      .padding(.vertical, 10)
+      .overlay(Divider(), alignment: .bottom)
     }
-    .padding(.vertical, 10)
-    .overlay(Divider(), alignment: .bottom)
+    .buttonStyle(.plain)
   }
 }
 

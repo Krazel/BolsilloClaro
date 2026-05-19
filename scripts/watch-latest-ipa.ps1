@@ -2,7 +2,7 @@ param(
   [string]$Repo = "Krazel/BolsilloClaro",
   [string]$WorkflowName = "Build unsigned iOS IPA",
   [string]$ArtifactName = "BolsilloClaro-unsigned-ipa",
-  [string]$AppVersion = "1.5",
+  [string]$AppVersion = "1.6",
   [string]$Commit = "",
   [int]$IntervalSeconds = 60,
   [int]$MaxAttempts = 30
